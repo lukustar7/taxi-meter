@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TAXI METER v1.0</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- 引入 NoSleep.js 以防锁屏 (可选，这里先用简单 hack) -->
+</head>
+<body class="retro-theme">
+
+    <!-- 顶部状态栏 -->
+    <header class="status-bar">
+        <div class="gps-status" id="gps-status">GPS: Searching...</div>
+        <button class="btn-settings" onclick="toggleSettings()">⚙️</button>
+    </header>
+
+    <!-- 主屏幕 (计价器) -->
+    <main id="meter-screen" class="active-screen">
+        <div class="meter-box">
+            <!-- 空车灯 (翻牌器) -->
+            <div class="empty-sign" id="empty-sign">空车</div>
+
+            <!-- LED 显示区 -->
+            <div class="led-display">
+                <div class="led-row main-row">
+                    <span class="currency">¥</span>
+                    <span class="value" id="display-price">0.00</span>
+                </div>
+                <div class="led-row sub-row">
+                    <div class="sub-item">
+                        <span class="label">KM</span>
+                        <span class="value" id="display-km">0.0</span>
+                    </div>
+                    <div class="sub-item">
+                        <span class="label">TIME</span>
+                        <span class="value" id="display-time">00:00</span>
+                    </div>
+                </div>
+                <!-- 费率提示 -->
+                <div class="rate-info" id="rate-info">上海 (16.0/3km)</div>
+            </div>
+        </div>
+
+        <!-- 物理按钮区 -->
+        <div class="control-panel">
+            <button class="btn-phys btn-start" onclick="startTrip()">开始</button>
+            <button class="btn-phys btn-stop" onclick="stopTrip()" disabled>结束</button>
+            <button class="btn-phys btn-next" onclick="nextStep()" style="display:none;">支付</button>
+        </div>
+    </main>
+
+    <!-- 设置页面 (Overlay) -->
+    <div id="settings-panel" class="overlay-panel">
+        <div class="panel-header">
+            <h2>设置费率</h2>
+            <button class="btn-close" onclick="toggleSettings()">×</button>
+        </div>
+        <div class="panel-content">
+            <div class="form-group">
+                <label>选择城市</label>
+                <select id="city-select" onchange="loadCityRate()">
+                    <option value="shanghai">上海</option>
+                    <option value="guangzhou">广州</option>
+                    <option value="nanjing">南京</option>
+                    <option value="custom">自定义...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>起步价 (元)</label>
+                <input type="number" id="base-fare" value="16">
+            </div>
+            <div class="form-group">
+                <label>起步里程 (km)</label>
+                <input type="number" id="base-dist" value="3">
+            </div>
+            <div class="form-group">
+                <label>续租费 (元/km)</label>
+                <input type="number" id="per-km" value="2.7">
+            </div>
+            <div class="form-group">
+                <label>返空费 (元/km, >15km)</label>
+                <input type="number" id="empty-fee" value="1.5"> <!-- 额外加收 -->
+            </div>
+             <div class="form-group">
+                <label>收款码 (可选)</label>
+                <input type="file" id="qr-upload" accept="image/*" onchange="handleQRUpload(this)">
+                <div id="qr-preview" class="qr-preview"></div>
+                <small>图片仅保存在本地缓存，清除即丢失。</small>
+            </div>
+            <button class="btn-save" onclick="saveSettings()">保存设置</button>
+        </div>
+    </div>
+
+    <!-- 附加费页面 -->
+    <div id="extra-fee-screen" class="screen-panel">
+        <h2>附加费用</h2>
+        <div class="input-group-large">
+            <label>高速/路桥费</label>
+            <input type="number" id="toll-fee" value="0" placeholder="0">
+        </div>
+        <div class="input-group-large">
+            <label>停车费/其他</label>
+            <input type="number" id="other-fee" value="0" placeholder="0">
+        </div>
+        <button class="btn-next-step" onclick="goToTip()">下一步</button>
+    </div>
+
+    <!-- 小费页面 (Neta: POS Style Dark) -->
+    <div id="tip-screen" class="screen-panel tip-theme">
+        <div class="tip-header">
+            <h2>给司机加个鸡腿？🍗</h2>
+            <p>100% 的小费归司机所有</p>
+        </div>
+        
+        <div class="tip-grid">
+            <button class="btn-pos-tip" onclick="selectTip(0.15)">
+                <span class="tip-percent">15%</span>
+                <span class="tip-value" id="val-15">¥0</span>
+            </button>
+            <button class="btn-pos-tip selected" onclick="selectTip(0.20)">
+                <span class="tip-percent">20%</span>
+                <span class="tip-value" id="val-20">¥0</span>
+            </button>
+            <button class="btn-pos-tip" onclick="selectTip(0.25)">
+                <span class="tip-percent">25%</span>
+                <span class="tip-value" id="val-25">¥0</span>
+            </button>
+        </div>
+
+        <!-- 自定义输入区域 (默认隐藏，点击自定义后显示) -->
+        <div id="custom-tip-container" class="custom-tip-box" style="display:none;">
+            <div class="input-wrapper">
+                <span class="currency-symbol">¥</span>
+                <input type="number" id="custom-tip" placeholder="随意打赏" oninput="clearTipSelection()">
+            </div>
+        </div>
+
+        <div class="tip-footer">
+            <button class="btn-text-only" onclick="selectTip(0)">暂不打赏</button>
+            <button class="btn-text-only" onclick="showCustomTip()">自定义金额</button>
+        </div>
+
+        <button class="btn-confirm-pay" onclick="goToPay()">确认支付</button>
+    </div>
+
+    <!-- 支付页面 -->
+    <div id="pay-screen" class="screen-panel pay-mode">
+        <h2>请支付</h2>
+        <div class="final-amount">¥<span id="final-total">0.00</span></div>
+        <div class="bill-details">
+            <p>里程费: ¥<span id="bill-meter">0.00</span></p>
+            <p>附加费: ¥<span id="bill-extra">0.00</span></p>
+            <p>小费: ¥<span id="bill-tip">0.00</span></p>
+        </div>
+        <div class="qr-code-area" id="pay-qr-area">
+            <!-- 默认或用户上传的二维码 -->
+            <img src="" id="pay-qr-img" alt="收款码" style="display:none;">
+            <div id="default-qr-text" style="display:block;">(未上传收款码)<br>谢谢老板！老板大气！</div>
+        </div>
+        <button class="btn-home" onclick="resetApp()">再来一单</button>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

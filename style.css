@@ -1,0 +1,376 @@
+:root {
+    --bg-color: #121212;
+    --led-red: #ff3b30;
+    --led-green: #34c759;
+    --led-yellow: #ffcc00;
+    --panel-bg: #1c1c1e;
+    --border-color: #333;
+    --btn-start: #2ecc71;
+    --btn-stop: #e74c3c;
+    --btn-next: #3498db;
+    --text-color: #ecf0f1;
+    
+    /* POS Theme Vars (Dark Mode) */
+    --pos-bg: #121212;
+    --pos-card-bg: #2C2C2E;
+    --pos-input-bg: #1C1C1E;
+    --pos-text: #fff;
+    --pos-text-sub: #8E8E93;
+    --pos-blue: #0A84FF;
+    --pos-green: #30D158;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* 顶部状态栏 */
+.status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: #000;
+    font-size: 14px;
+    color: #888;
+    border-bottom: 1px solid #333;
+    flex-shrink: 0;
+}
+
+.btn-settings {
+    background: none;
+    border: none;
+    font-size: 28px;
+    cursor: pointer;
+    color: #fff;
+    padding: 5px;
+}
+
+/* 主屏幕 (计价器) */
+#meter-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    width: 100%;
+}
+
+.meter-box {
+    background: #000;
+    border: 6px solid #444;
+    border-radius: 16px;
+    padding: 25px;
+    width: 100%;
+    max-width: 500px;
+    box-shadow: 0 0 30px rgba(0,0,0,0.7);
+    position: relative;
+    margin-bottom: 40px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 空车灯 */
+.empty-sign {
+    position: absolute;
+    top: -20px;
+    left: 30px;
+    background: #ff3b30;
+    color: white;
+    padding: 8px 20px;
+    font-size: 18px;
+    font-weight: bold;
+    border-radius: 6px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    transform-origin: top center;
+    transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 10;
+    border: 2px solid #fff;
+}
+
+.empty-sign.flipped {
+    transform: rotateX(90deg);
+    background: #333;
+    color: #555;
+    border-color: #444;
+}
+
+/* LED 显示区 */
+.led-display {
+    font-family: 'Courier New', monospace;
+    text-align: right;
+    width: 100%;
+}
+
+.led-row { margin-bottom: 15px; }
+
+.main-row {
+    font-size: 16vw;
+    line-height: 1;
+    color: var(--led-red);
+    text-shadow: 0 0 15px rgba(255, 59, 48, 0.6);
+    font-weight: bold;
+    letter-spacing: 2px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+}
+
+@media (min-width: 500px) { .main-row { font-size: 80px; } }
+
+.main-row .currency { font-size: 0.5em; margin-right: 5px; color: #666; }
+
+.sub-row {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 25px;
+    padding-top: 15px;
+    border-top: 2px dashed #222;
+}
+
+.sub-item { display: flex; flex-direction: column; align-items: flex-end; }
+.sub-item .label { font-size: 14px; color: #666; margin-bottom: 5px; font-weight: bold; font-family: -apple-system, sans-serif; }
+.sub-item .value {
+    font-size: 32px;
+    color: var(--led-green);
+    text-shadow: 0 0 8px rgba(52, 199, 89, 0.5);
+    font-weight: bold;
+}
+
+#display-time { color: var(--led-yellow); text-shadow: 0 0 8px rgba(255, 204, 0, 0.5); }
+
+.rate-info { margin-top: 20px; font-size: 14px; color: #555; text-align: center; font-family: -apple-system, sans-serif; }
+
+/* 控制面板 */
+.control-panel {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+    width: 100%;
+    max-width: 500px;
+    padding: 0 10px;
+}
+
+.btn-phys {
+    flex: 1;
+    padding: 25px 0;
+    font-size: 24px;
+    font-weight: bold;
+    border: none;
+    border-radius: 16px;
+    color: white;
+    cursor: pointer;
+    box-shadow: 0 6px 0 rgba(0,0,0,0.4), 0 10px 20px rgba(0,0,0,0.3);
+    transition: all 0.1s;
+    text-transform: uppercase;
+    position: relative;
+    top: 0;
+    font-family: -apple-system, sans-serif;
+}
+
+.btn-phys:active { top: 6px; box-shadow: 0 0 0 rgba(0,0,0,0.4), inset 0 2px 5px rgba(0,0,0,0.2); }
+.btn-start { background: var(--btn-start); }
+.btn-stop { background: var(--btn-stop); }
+.btn-next { background: var(--btn-next); }
+.btn-phys:disabled { background: #333; color: #555; box-shadow: none; cursor: not-allowed; top: 6px; }
+
+/* 遮罩通用 */
+.overlay-panel, .screen-panel {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--bg-color);
+    z-index: 100;
+    padding: 30px 20px;
+    display: none;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.overlay-panel.active, .screen-panel.active { display: flex; }
+
+/* ======== 美化输入框与表单 (Unified Dark POS Style) ======== */
+
+h2 {
+    color: #fff;
+    font-size: 32px;
+    margin-bottom: 20px;
+    font-weight: 700;
+}
+
+.form-group, .input-group-large {
+    background: var(--pos-card-bg);
+    padding: 20px;
+    border-radius: 16px;
+    margin-bottom: 20px;
+    border: 1px solid #333;
+}
+
+.form-group label, .input-group-large label {
+    display: block;
+    font-size: 16px;
+    color: var(--pos-text-sub);
+    margin-bottom: 12px;
+    font-weight: 500;
+}
+
+/* 统一输入框样式 */
+input[type="number"], select, input[type="text"] {
+    width: 100%;
+    padding: 15px;
+    background: var(--pos-input-bg);
+    border: 1px solid #444;
+    color: #fff;
+    font-size: 20px;
+    border-radius: 12px;
+    height: 56px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    font-family: -apple-system, monospace; /* 数字用等宽 */
+}
+
+input:focus, select:focus {
+    border-color: var(--pos-blue);
+    box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.2);
+}
+
+/* 附加费页面特定样式 */
+#extra-fee-screen input {
+    text-align: right;
+    font-size: 28px;
+    color: var(--led-green); /* 钱数用绿色 */
+    font-weight: bold;
+}
+
+/* 按钮美化 */
+.btn-save, .btn-next-step, .btn-home, .btn-confirm-pay {
+    width: 100%;
+    padding: 20px;
+    background: var(--pos-blue);
+    color: white;
+    font-size: 20px;
+    font-weight: 600;
+    border: none;
+    border-radius: 16px;
+    margin-top: 30px;
+    box-shadow: 0 4px 15px rgba(10, 132, 255, 0.3);
+    cursor: pointer;
+}
+
+.btn-save:active, .btn-next-step:active { transform: scale(0.98); }
+
+.btn-close {
+    font-size: 32px;
+    padding: 10px;
+    background: #333;
+    border-radius: 50%;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+/* 设置面板头部 */
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.panel-header h2 { margin: 0; }
+
+/* 支付页 */
+.pay-mode { align-items: center; text-align: center; }
+.final-amount { font-size: 18vw; color: var(--led-red); font-weight: bold; margin: 20px 0; text-shadow: 0 0 10px rgba(255, 59, 48, 0.4); }
+@media (min-width: 500px) { .final-amount { font-size: 90px; } }
+.bill-details { width: 100%; background: var(--pos-card-bg); padding: 20px; border-radius: 16px; margin-bottom: 20px; text-align: left; font-size: 16px; color: var(--pos-text-sub); border: 1px solid #333; }
+.bill-details p { display: flex; justify-content: space-between; margin: 10px 0; border-bottom: 1px dashed #444; padding-bottom: 10px; }
+.bill-details span { color: white; font-weight: bold; }
+.qr-code-area { width: 260px; height: 260px; background: white; margin: 30px auto; display: flex; align-items: center; justify-content: center; border-radius: 16px; overflow: hidden; color: black; font-weight: bold; }
+.qr-code-area img { width: 100%; height: 100%; object-fit: contain; }
+.btn-home { background: #333; box-shadow: none; }
+
+/* ================= POS Tip Style (Refined) ================= */
+.tip-theme { background-color: var(--bg-color); }
+
+.tip-header { text-align: center; margin-bottom: 40px; margin-top: 30px; }
+.tip-header h2 { font-size: 32px; margin: 0 0 10px 0; }
+.tip-header p { font-size: 16px; color: var(--pos-text-sub); margin: 0; }
+
+.tip-grid { display: flex; gap: 15px; margin-bottom: 30px; justify-content: center; }
+
+.btn-pos-tip {
+    flex: 1;
+    background: var(--pos-card-bg);
+    border: 2px solid transparent;
+    border-radius: 16px;
+    padding: 20px 5px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    height: 140px;
+    color: white;
+}
+
+.btn-pos-tip .tip-percent { font-size: 32px; font-weight: 800; margin-bottom: 10px; }
+.btn-pos-tip .tip-value { font-size: 16px; color: var(--pos-text-sub); }
+
+.btn-pos-tip.selected {
+    background: var(--pos-blue);
+    color: #FFF;
+    border-color: var(--pos-blue);
+    box-shadow: 0 0 20px rgba(10, 132, 255, 0.4);
+    transform: translateY(-2px);
+}
+.btn-pos-tip.selected .tip-value { color: rgba(255,255,255,0.9); }
+
+.custom-tip-box { margin-bottom: 30px; width: 100%; }
+
+.input-wrapper {
+    display: flex;
+    align-items: center;
+    background: var(--pos-card-bg);
+    border-radius: 16px;
+    padding: 5px 20px;
+    border: 2px solid #444; /* 默认边框 */
+    transition: border-color 0.2s;
+}
+
+.input-wrapper:focus-within {
+    border-color: var(--pos-blue);
+    box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.2);
+}
+
+.currency-symbol { font-size: 28px; color: var(--pos-text-sub); margin-right: 10px; }
+
+#custom-tip {
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 28px;
+    width: 100%;
+    height: 60px;
+    outline: none;
+    padding: 0;
+}
+
+.tip-footer { display: flex; justify-content: space-between; padding: 0 10px; margin-bottom: 30px; }
+.btn-text-only { background: none; border: none; font-size: 16px; color: var(--pos-text-sub); padding: 10px 20px; cursor: pointer; font-weight: 500; }
