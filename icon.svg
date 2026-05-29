@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- 背景渐变 -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1f2022" />
+      <stop offset="50%" stop-color="#151617" />
+      <stop offset="100%" stop-color="#0d0e0f" />
+    </linearGradient>
+    
+    <!-- 金色高光渐变 -->
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffd54f" />
+      <stop offset="100%" stop-color="#ffb300" />
+    </linearGradient>
+    
+    <!-- LED 红色发光滤镜 -->
+    <filter id="ledGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    
+    <!-- 微微的外阴影 -->
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <!-- 图标背景：经典的圆角黑色碳纤感面板 -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  
+  <!-- 外边框：亮黄色出租车条纹框 -->
+  <rect x="24" y="24" width="464" height="464" rx="88" fill="none" stroke="url(#goldGrad)" stroke-width="12" stroke-dasharray="24 16" />
+
+  <!-- 计价器主体网格图案装饰 -->
+  <g opacity="0.05">
+    <path d="M 0,64 L 512,64 M 0,128 L 512,128 M 0,192 L 512,192 M 0,256 L 512,256 M 0,320 L 512,320 M 0,384 L 512,384 M 0,448 L 512,448" stroke="#ffffff" stroke-width="2"/>
+    <path d="M 64,0 L 64,512 M 128,0 L 128,512 M 192,0 L 192,512 M 256,0 L 256,512 M 320,0 L 320,512 M 384,0 L 384,512 M 448,0 L 448,512" stroke="#ffffff" stroke-width="2"/>
+  </g>
+
+  <!-- 核心：复古出租车顶灯造型 -->
+  <g filter="url(#shadow)">
+    <!-- 顶灯底座 -->
+    <path d="M 120,290 L 392,290 L 362,170 C 356,150 338,136 316,136 L 196,136 C 174,136 156,150 150,170 Z" fill="url(#goldGrad)" />
+    <!-- 顶灯黑色底垫 -->
+    <path d="M 100,290 C 100,290 110,306 130,306 L 382,306 C 402,306 412,290 412,290 Z" fill="#111" />
+  </g>
+  
+  <!-- 顶灯文字 "TAXI" -->
+  <text x="256" y="240" font-family="'Impact', 'Arial Black', sans-serif" font-size="76" font-weight="900" fill="#111" text-anchor="middle" letter-spacing="4">TAXI</text>
+
+  <!-- 下方的 LED 辉光计费显示区 -->
+  <rect x="96" y="340" width="320" height="96" rx="16" fill="#080808" stroke="#222" stroke-width="4" />
+  <!-- 模拟 LED 红色背光网格 -->
+  <rect x="104" y="348" width="304" height="80" rx="8" fill="#1a0202" />
+  
+  <!-- LED 红色发光文字 "¥ 88.80" -->
+  <text x="256" y="405" font-family="'Courier New', Courier, monospace, sans-serif" font-size="56" font-weight="bold" fill="#ff2222" text-anchor="middle" filter="url(#ledGlow)" letter-spacing="2">¥16.00</text>
+  
+  <!-- 装饰性小细节：两个物理按键模拟 -->
+  <circle cx="60" cy="256" r="16" fill="#333" stroke="#222" stroke-width="2" />
+  <circle cx="452" cy="256" r="16" fill="#ff3b30" stroke="#800" stroke-width="2" />
+</svg>

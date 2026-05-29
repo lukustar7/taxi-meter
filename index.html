@@ -3,16 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>TAXI METER v1.0</title>
+    <title>TAXI METER v1.1</title>
     <link rel="stylesheet" href="style.css">
-    <!-- 引入 NoSleep.js 以防锁屏 (可选，这里先用简单 hack) -->
+    <!-- PWA 配置 -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
 <body class="retro-theme">
 
     <!-- 顶部状态栏 -->
     <header class="status-bar">
         <div class="gps-status" id="gps-status">GPS: Searching...</div>
-        <button class="btn-settings" onclick="toggleSettings()">⚙️</button>
+        <div class="action-buttons">
+            <button class="btn-theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="切换昼夜主题">🌙</button>
+            <button class="btn-settings" onclick="toggleSettings()">⚙️</button>
+        </div>
     </header>
 
     <!-- 主屏幕 (计价器) -->
@@ -37,8 +44,11 @@
                         <span class="value" id="display-time">00:00</span>
                     </div>
                 </div>
-                <!-- 费率提示 -->
-                <div class="rate-info" id="rate-info">上海 (16.0/3km)</div>
+                <!-- 费率与夜间指示 -->
+                <div class="rate-bar">
+                    <div class="rate-info" id="rate-info">上海 (16.0/3km)</div>
+                    <div class="night-indicator" id="night-indicator">NIGHT 夜间</div>
+                </div>
             </div>
         </div>
 
@@ -58,15 +68,6 @@
         </div>
         <div class="panel-content">
             <div class="form-group">
-                <label>选择城市</label>
-                <select id="city-select" onchange="loadCityRate()">
-                    <option value="shanghai">上海</option>
-                    <option value="guangzhou">广州</option>
-                    <option value="nanjing">南京</option>
-                    <option value="custom">自定义...</option>
-                </select>
-            </div>
-            <div class="form-group">
                 <label>起步价 (元)</label>
                 <input type="number" id="base-fare" value="16">
             </div>
@@ -79,8 +80,12 @@
                 <input type="number" id="per-km" value="2.7">
             </div>
             <div class="form-group">
-                <label>返空费 (元/km, >15km)</label>
-                <input type="number" id="empty-fee" value="1.5"> <!-- 额外加收 -->
+                <label>返空里程起征点 (km)</label>
+                <input type="number" id="empty-dist" value="15">
+            </div>
+            <div class="form-group">
+                <label>返空加收倍率 (倍，超出起征点后)</label>
+                <input type="number" id="empty-fee" value="1.5" step="0.1">
             </div>
              <div class="form-group">
                 <label>收款码 (可选)</label>
@@ -103,7 +108,10 @@
             <label>停车费/其他</label>
             <input type="number" id="other-fee" value="0" placeholder="0">
         </div>
-        <button class="btn-next-step" onclick="goToTip()">下一步</button>
+        <div class="step-buttons">
+            <button class="btn-save btn-back" onclick="goBackToMeter()">← 返回</button>
+            <button class="btn-next-step" onclick="goToTip()">下一步 →</button>
+        </div>
     </div>
 
     <!-- 小费页面 (Neta: POS Style Dark) -->
@@ -141,12 +149,15 @@
             <button class="btn-text-only" onclick="showCustomTip()">自定义金额</button>
         </div>
 
-        <button class="btn-confirm-pay" onclick="goToPay()">确认支付</button>
+        <div class="step-buttons">
+            <button class="btn-save btn-back" onclick="goBackToExtra()">← 修改附加费</button>
+            <button class="btn-confirm-pay" onclick="goToPay()">确认支付 →</button>
+        </div>
     </div>
 
     <!-- 支付页面 -->
     <div id="pay-screen" class="screen-panel pay-mode">
-        <h2>请支付</h2>
+        <h2 id="pay-screen-title">请支付</h2>
         <div class="final-amount">¥<span id="final-total">0.00</span></div>
         <div class="bill-details">
             <p>里程费: ¥<span id="bill-meter">0.00</span></p>
@@ -158,7 +169,69 @@
             <img src="" id="pay-qr-img" alt="收款码" style="display:none;">
             <div id="default-qr-text" style="display:block;">(未上传收款码)<br>谢谢老板！老板大气！</div>
         </div>
-        <button class="btn-home" onclick="resetApp()">再来一单</button>
+        <!-- ⚡ 尊贵网贷代扣结清电子收据 (出厂默认隐藏) -->
+        <div class="paid-stamp-box" id="paid-stamp-area" style="display:none;">
+            <div class="paid-seal">已结清 PAID</div>
+            <p class="paid-note">💰 车资已由【打车借呗】全额扣除并付讫</p>
+            <p class="paid-hint">请于 5 秒内还款以维持三代优良信用体系 🧱</p>
+        </div>
+        <div class="step-buttons">
+            <button class="btn-save btn-back" id="btn-pay-back" onclick="goBackToTip()">← 修改小费</button>
+            <button class="btn-home" onclick="resetApp()">再来一单</button>
+        </div>
+    </div>
+
+    <!-- 🚨 破产清算彩蛋页面 (全屏金融网贷诱导) 🚨 -->
+    <div id="bankruptcy-screen" class="screen-panel bankruptcy-theme">
+        <div class="financial-header">
+            <div class="safety-badge">👑 尊贵 VIP 专属渡劫通道</div>
+            <h2>支付失败：钱包余额不足 😢</h2>
+            <p>应付账单：<span class="pay-fail-amount">¥<span id="bankrupt-total">999999.00</span></span></p>
+        </div>
+        
+        <!-- 大厂金融级贴心借贷卡片 -->
+        <div class="loan-card">
+            <div class="card-header-bar">
+                <span class="loan-logo">⚡</span>
+                <span class="loan-name">打车借呗 · 一键渡劫贷</span>
+                <span class="secure-tag">🛡️ 金融级保障</span>
+            </div>
+            
+            <div class="card-body">
+                <div class="limit-label">您的专属可借额度 (元)</div>
+                <div class="limit-value">¥1,000,000</div>
+                
+                <div class="loan-details">
+                    <div class="detail-item">
+                        <span class="d-label">限时特惠年化</span>
+                        <span class="d-value highlighted">250%</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="d-label">首期减免</span>
+                        <span class="d-value">前 5 秒免息 ⏱️</span>
+                    </div>
+                </div>
+                
+                <p class="loan-intro">“无需审核，刷脸一秒到账并自动划扣付清车资，保住面子！从此人生不留遗憾！👨‍💻”</p>
+            </div>
+        </div>
+
+        <!-- 强制勾选的霸王协议区 (默认勾选且不可取消) -->
+        <div class="agreement-box">
+            <label class="checkbox-container">
+                <input type="checkbox" checked disabled>
+                <span class="checkmark"></span>
+                <span class="agree-text">
+                    我已阅读并同意《打车一键渡劫贷借款服务协议》《全家九族终身无偿搬砖信用抵债保证书》《个人灵魂及全部器官自愿让渡及配给协议》《默认自动购买理财及百种捆绑险种合同》
+                </span>
+            </label>
+        </div>
+
+        <!-- 极其显眼的诱导借款付款按钮 -->
+        <button class="btn-phys btn-loan-submit" onclick="submitLoanPayment()">⚡ 立即借款付清（享前5秒免息）</button>
+        
+        <!-- 被冷落的放弃借款重开按钮 (灰色小字) -->
+        <button class="btn-text-only btn-give-up" onclick="resetApp()">放弃借款，当场去工地搬砖抵债 🧱</button>
     </div>
 
     <script src="script.js"></script>

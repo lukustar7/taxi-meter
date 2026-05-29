@@ -1,0 +1,18 @@
+{
+  "name": "复古出租车计价器 TAXI METER",
+  "short_name": "出租车计价器",
+  "description": "完美的复古老式出租车计价器，带 GPS 实时定位计费与美式小费恶搞体验。",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#151617",
+  "theme_color": "#151617",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
