@@ -1,9 +1,38 @@
 // 全局语义化版本号
-const VERSION = '1.4.1';
+const VERSION = '1.4.2';
 
-// 用户配置 (默认上海运价作为初始出厂参数)
+// 默认上海运价作为初始出厂参数；所有读取到的外部配置都会先回到这个安全基线再做校验。
+const DEFAULT_RATE = Object.freeze({ base: 16, baseKm: 3, perKm: 2.7, emptyKm: 15, emptyRate: 1.5 });
+
+// 终极车资最大限制 (防爆屏封顶：99.9万)
+const MAX_FARE = 999999.00;
+
+// 数字输入统一上限，避免用户输入 Infinity 或超大科学计数法后把账单算成 NaN。
+const MAX_NUMERIC_INPUT = MAX_FARE;
+
+// 返空倍率只允许在合理区间内波动，防止 1e309 之类的输入污染计费公式。
+const MAX_EMPTY_RATE = 100;
+
+// 收款码只需要小图；限制 512KB 可以避开 localStorage 配额爆炸和手机内存浪费。
+const MAX_QR_IMAGE_BYTES = 512 * 1024;
+
+// GPS 样本质量阈值：宁可少记一个坏点，也不让弱信号瞬间跳出离谱里程。
+const MAX_GPS_ACCURACY_METERS = 80;
+const MIN_MOVING_SPEED_KMH = 0.6;
+const MAX_REASONABLE_SPEED_KMH = 200;
+const MAX_SINGLE_SEGMENT_KM = 2;
+const MIN_MOVING_DISTANCE_KM = 0.003;
+
+// LocalStorage 专用键名集中管理，避免字符串散落导致迁移和清理遗漏。
+const STORAGE_CONFIG_KEY = 'retro_taxi_meter_config_v1';
+const STORAGE_QR_KEY = 'retro_taxi_meter_qr_v1';
+
+// 夜间费率配置 (23:00 - 次日 05:00 自动加收 30% 费率)
+const NIGHT_MULTIPLIER = 1.3;
+
+// 用户配置
 let config = {
-    rate: { base: 16, baseKm: 3, perKm: 2.7, emptyKm: 15, emptyRate: 1.5 },
+    rate: { ...DEFAULT_RATE },
     qrImage: null
 };
 
@@ -14,21 +43,18 @@ let state = {
     elapsedTime: 0,       // 累计时间 (秒)
     distance: 0,          // 累计里程 (km)
     currentFare: 0,       // 当前计价费 (元)
+    fareDistance: 0,      // 已进入阶梯计价公式的有效里程 (km)
     tollFee: 0,           // 路桥费
     otherFee: 0,          // 停车费/其他
     tipFee: 0,            // 小费
     lastPos: null,        // 上一次 GPS 位置
     lastTimestamp: 0,     // 上一次 GPS 定位的时间戳
+    lastChargedPos: null, // 上一次真正计费的 GPS 位置
+    lastChargedTimestamp: 0, // 上一次真正计费的时间戳
     watchId: null,        // Geolocation 监听器 ID
     timerId: null,        // 计时器 ID
     isNight: false        // 当前是否处于夜间加费阶段
 };
-
-// 终极车资最大限制 (防爆屏封顶：99.9万)
-const MAX_FARE = 999999.00;
-
-// 夜间费率配置 (23:00 - 次日 05:00 自动加收 30% 费率)
-const NIGHT_MULTIPLIER = 1.3;
 
 // Web Audio API 上下文 (延迟懒加载以兼容浏览器 Autoplay 限制)
 let audioCtx = null;
@@ -60,17 +86,141 @@ function registerServiceWorker() {
     }
 }
 
+// 把来自输入框、缓存或旧版本数据的数字清洗成有限范围内的数字，防止 NaN/Infinity 污染计费。
+function clampNumber(value, fallback, min = 0, max = MAX_NUMERIC_INPUT) {
+    const parsed = Number.parseFloat(value);
+    if (!Number.isFinite(parsed)) {
+        return fallback;
+    }
+
+    return Math.min(Math.max(parsed, min), max);
+}
+
+// 统一修正费率配置，尤其保证“返空起征点”不会小于“起步里程”。
+function normalizeRate(rawRate = {}) {
+    const source = rawRate || {};
+    const rate = {
+        base: clampNumber(source.base, DEFAULT_RATE.base),
+        baseKm: clampNumber(source.baseKm, DEFAULT_RATE.baseKm),
+        perKm: clampNumber(source.perKm, DEFAULT_RATE.perKm),
+        emptyKm: clampNumber(source.emptyKm, DEFAULT_RATE.emptyKm),
+        emptyRate: clampNumber(source.emptyRate, DEFAULT_RATE.emptyRate, 1, MAX_EMPTY_RATE)
+    };
+
+    if (rate.emptyKm < rate.baseKm) {
+        rate.emptyKm = rate.baseKm;
+    }
+
+    return rate;
+}
+
+// 只保存费率，不把二维码塞进配置对象，避免同一张收款码在 localStorage 里占两份空间。
+function saveRateConfig() {
+    try {
+        localStorage.setItem(STORAGE_CONFIG_KEY, JSON.stringify({ rate: config.rate }));
+        return true;
+    } catch (e) {
+        console.warn('保存费率配置失败:', e);
+        alert('费率保存失败：浏览器本地存储不可用或空间不足');
+        return false;
+    }
+}
+
+// 初始化阶段静默写回精简配置，用来清掉旧版本 config 中混入的 qrImage 大字段。
+function persistNormalizedRateSilently() {
+    try {
+        localStorage.setItem(STORAGE_CONFIG_KEY, JSON.stringify({ rate: config.rate }));
+    } catch (e) {
+        console.warn('精简费率配置写回失败:', e);
+    }
+}
+
+// 安全读取本地存储；部分隐私模式或存储被禁用时会抛错，不能让页面初始化中断。
+function readStorageItem(key) {
+    try {
+        return localStorage.getItem(key);
+    } catch (e) {
+        console.warn('读取本地缓存失败:', e);
+        return null;
+    }
+}
+
+// 渲染收款码预览和支付页二维码，所有入口都走这里，避免重复 DOM 逻辑。
+function renderQRImage(dataUrl) {
+    config.qrImage = dataUrl;
+
+    const preview = document.getElementById('qr-preview');
+    preview.innerHTML = '';
+
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.alt = '收款码预览';
+    img.style.width = '100px';
+    preview.appendChild(img);
+
+    document.getElementById('pay-qr-img').src = dataUrl;
+    document.getElementById('pay-qr-img').style.display = 'block';
+    document.getElementById('default-qr-text').style.display = 'none';
+}
+
+// 估算 Data URL 还原后的二进制体积，用于拦截过大的收款码图片。
+function getDataUrlByteSize(dataUrl) {
+    const base64 = dataUrl.split(',')[1] || '';
+    return Math.ceil(base64.length * 3 / 4);
+}
+
+// 只接受常见位图格式，拒绝 SVG 等可携带复杂脚本语义的图片格式。
+function isAllowedQRImageType(type) {
+    return ['image/png', 'image/jpeg', 'image/webp'].includes(type);
+}
+
+// 旧缓存恢复也必须检查图片格式和大小，不能让历史大图绕过新上传限制。
+function isAllowedQRDataUrl(dataUrl) {
+    const match = typeof dataUrl === 'string' && dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,/);
+    return Boolean(match) && getDataUrlByteSize(dataUrl) <= MAX_QR_IMAGE_BYTES;
+}
+
+// 将用户上传的图片压缩成二维码足够清晰的小图，降低 localStorage 配额爆炸风险。
+function compressQRImage(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('图片读取失败'));
+        reader.onload = () => {
+            const image = new Image();
+            image.onerror = () => reject(new Error('图片解析失败'));
+            image.onload = () => {
+                const maxSide = 512;
+                const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+                const width = Math.max(1, Math.round(image.width * scale));
+                const height = Math.max(1, Math.round(image.height * scale));
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(0, 0, width, height);
+                ctx.drawImage(image, 0, 0, width, height);
+
+                resolve(canvas.toDataURL('image/jpeg', 0.9));
+            };
+            image.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
 // 兼容性平滑数据搬运
 function migrateLegacyStorage() {
     try {
         const legacyConfig = localStorage.getItem('taxi_config');
-        if (legacyConfig && !localStorage.getItem('retro_taxi_meter_config_v1')) {
-            localStorage.setItem('retro_taxi_meter_config_v1', legacyConfig);
+        if (legacyConfig && !localStorage.getItem(STORAGE_CONFIG_KEY)) {
+            localStorage.setItem(STORAGE_CONFIG_KEY, legacyConfig);
             localStorage.removeItem('taxi_config');
         }
         const legacyQR = localStorage.getItem('taxi_qr');
-        if (legacyQR && !localStorage.getItem('retro_taxi_meter_qr_v1')) {
-            localStorage.setItem('retro_taxi_meter_qr_v1', legacyQR);
+        if (legacyQR && !localStorage.getItem(STORAGE_QR_KEY)) {
+            localStorage.setItem(STORAGE_QR_KEY, legacyQR);
             localStorage.removeItem('taxi_qr');
         }
     } catch (e) {
@@ -82,18 +232,17 @@ function migrateLegacyStorage() {
 function loadSettings() {
     migrateLegacyStorage(); // 优先执行平滑数据搬运
 
-    const savedConfig = localStorage.getItem('retro_taxi_meter_config_v1');
+    const savedConfig = readStorageItem(STORAGE_CONFIG_KEY);
     if (savedConfig) {
         try {
             const parsed = JSON.parse(savedConfig);
-            // 兼容性兜底：如果缓存的是老版本没有 rate 属性的配置，则使用出厂上海默认值
-            if (parsed && parsed.rate) {
-                config.rate = parsed.rate;
-            } else {
-                config.rate = { base: 16, baseKm: 3, perKm: 2.7, emptyKm: 15, emptyRate: 1.5 };
-            }
+            // 同时兼容 { rate: ... } 和更老的扁平对象，读出来后统一做边界校验。
+            config.rate = normalizeRate(parsed && (parsed.rate || parsed));
+            persistNormalizedRateSilently();
         } catch (e) {
             console.warn('读取配置解析失败，恢复默认配置:', e);
+            config.rate = { ...DEFAULT_RATE };
+            persistNormalizedRateSilently();
         }
     }
     
@@ -105,19 +254,15 @@ function loadSettings() {
     document.getElementById('empty-fee').value = config.rate.emptyRate;
 
     // 二维码恢复
-    const savedQR = localStorage.getItem('retro_taxi_meter_qr_v1');
-    if (savedQR) {
-        config.qrImage = savedQR;
-        document.getElementById('pay-qr-img').src = savedQR;
-        document.getElementById('pay-qr-img').style.display = 'block';
-        document.getElementById('default-qr-text').style.display = 'none';
-        
-        const preview = document.getElementById('qr-preview');
-        preview.innerHTML = '';
-        const img = document.createElement('img');
-        img.src = savedQR;
-        img.style.width = '100px';
-        preview.appendChild(img);
+    const savedQR = readStorageItem(STORAGE_QR_KEY);
+    if (isAllowedQRDataUrl(savedQR)) {
+        renderQRImage(savedQR);
+    } else if (savedQR) {
+        try {
+            localStorage.removeItem(STORAGE_QR_KEY);
+        } catch (e) {
+            console.warn('清理无效收款码缓存失败:', e);
+        }
     }
     
     updateRateInfoDisplay(config.rate);
@@ -142,40 +287,55 @@ function saveSettings() {
     playClickSound();
     triggerHaptic(20);
 
-    config.rate = {
-        base: Math.max(0, parseFloat(document.getElementById('base-fare').value) || 0),
-        baseKm: Math.max(0, parseFloat(document.getElementById('base-dist').value) || 0),
-        perKm: Math.max(0, parseFloat(document.getElementById('per-km').value) || 0),
-        emptyKm: Math.max(0, parseFloat(document.getElementById('empty-dist').value) || 0),
-        emptyRate: Math.max(0, parseFloat(document.getElementById('empty-fee').value) || 1.0)
-    };
+    config.rate = normalizeRate({
+        base: document.getElementById('base-fare').value,
+        baseKm: document.getElementById('base-dist').value,
+        perKm: document.getElementById('per-km').value,
+        emptyKm: document.getElementById('empty-dist').value,
+        emptyRate: document.getElementById('empty-fee').value
+    });
 
-    localStorage.setItem('retro_taxi_meter_config_v1', JSON.stringify(config));
+    document.getElementById('base-fare').value = config.rate.base;
+    document.getElementById('base-dist').value = config.rate.baseKm;
+    document.getElementById('per-km').value = config.rate.perKm;
+    document.getElementById('empty-dist').value = config.rate.emptyKm;
+    document.getElementById('empty-fee').value = config.rate.emptyRate;
+
+    if (!saveRateConfig()) return;
     updateNightStatus(); // 重新核对夜间指示并刷新运价展示
+    if (state.isRunning) {
+        recalcFare();
+        updateDisplay();
+    }
     toggleSettings();
     alert('费率设置已保存');
 }
 
 // 二维码图片上传本地缓存化
-function handleQRUpload(input) {
-    if (input.files && input.files[0]) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const base64 = e.target.result;
-            localStorage.setItem('retro_taxi_meter_qr_v1', base64);
-            config.qrImage = base64;
-            
-            const preview = document.getElementById('qr-preview');
-            preview.innerHTML = '';
-            const img = document.createElement('img');
-            img.src = base64;
-            img.style.width = '100px';
-            preview.appendChild(img);
-            document.getElementById('pay-qr-img').src = base64;
-            document.getElementById('pay-qr-img').style.display = 'block';
-            document.getElementById('default-qr-text').style.display = 'none';
+async function handleQRUpload(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+
+    if (!isAllowedQRImageType(file.type)) {
+        input.value = '';
+        alert('收款码仅支持 PNG、JPG 或 WebP 图片');
+        return;
+    }
+
+    try {
+        const compressedDataUrl = await compressQRImage(file);
+        if (getDataUrlByteSize(compressedDataUrl) > MAX_QR_IMAGE_BYTES) {
+            input.value = '';
+            alert('收款码图片过大，请换一张更清晰且更小的二维码截图');
+            return;
         }
-        reader.readAsDataURL(input.files[0]);
+
+        localStorage.setItem(STORAGE_QR_KEY, compressedDataUrl);
+        renderQRImage(compressedDataUrl);
+    } catch (e) {
+        console.warn('收款码保存失败:', e);
+        input.value = '';
+        alert('收款码保存失败：浏览器本地存储空间不足或图片无法解析');
     }
 }
 
@@ -257,11 +417,14 @@ function triggerHaptic(duration = 15) {
 
 // 申请屏幕常亮，防黑屏和计费中断
 async function requestWakeLock() {
+    if (wakeLock !== null) return;
+
     if ('wakeLock' in navigator) {
         try {
             wakeLock = await navigator.wakeLock.request('screen');
             console.log('[Wake Lock] 屏幕常亮锁已成功激活！');
             wakeLock.addEventListener('release', () => {
+                wakeLock = null;
                 console.log('[Wake Lock] 屏幕常亮锁已被系统强制释放');
             });
         } catch (err) {
@@ -276,13 +439,16 @@ function releaseWakeLock() {
         wakeLock.release().then(() => {
             wakeLock = null;
             console.log('[Wake Lock] 屏幕常亮锁已手动释放');
+        }).catch((err) => {
+            wakeLock = null;
+            console.warn('[Wake Lock] 释放常亮锁失败:', err);
         });
     }
 }
 
 // 当页面切回前台时，若计价器仍在跑，则重新请求常亮锁
 document.addEventListener('visibilitychange', async () => {
-    if (wakeLock !== null && document.visibilityState === 'visible' && state.isRunning) {
+    if (document.visibilityState === 'visible' && state.isRunning) {
         await requestWakeLock();
     }
 });
@@ -295,10 +461,11 @@ function isNightTime() {
     return hours >= 23 || hours < 5;
 }
 
-// 刷新夜间状态与 LED 指示灯
+// 刷新夜间状态与 LED 指示灯；返回值表示夜间状态是否发生变化。
 function updateNightStatus() {
     const isNight = isNightTime();
     const indicator = document.getElementById('night-indicator');
+    const changed = state.isNight !== isNight;
     
     if (isNight) {
         indicator.classList.add('active'); // 亮灯
@@ -309,6 +476,7 @@ function updateNightStatus() {
     }
     
     updateRateInfoDisplay(config.rate);
+    return changed;
 }
 
 // ================= ☀️/🌙 昼夜视觉主题切换 =================
@@ -354,6 +522,7 @@ function startTrip() {
     state.isRunning = true;
     state.startTime = Date.now();
     state.distance = 0;
+    state.fareDistance = 0;
     state.elapsedTime = 0;
     
     // 重新核对夜间费率
@@ -362,6 +531,8 @@ function startTrip() {
     state.currentFare = Math.min(config.rate.base * baseMultiplier, MAX_FARE); 
     state.lastPos = null;
     state.lastTimestamp = 0;
+    state.lastChargedPos = null;
+    state.lastChargedTimestamp = 0;
 
     // 申请屏幕常亮
     requestWakeLock();
@@ -375,6 +546,9 @@ function startTrip() {
     // 启动秒计时器
     state.timerId = setInterval(() => {
         state.elapsedTime++;
+        if (updateNightStatus()) {
+            recalcFare();
+        }
         updateDisplay();
     }, 1000);
 
@@ -391,8 +565,14 @@ function stopTrip() {
     triggerHaptic(20);
 
     state.isRunning = false;
-    clearInterval(state.timerId);
-    navigator.geolocation.clearWatch(state.watchId);
+    if (state.timerId) {
+        clearInterval(state.timerId);
+        state.timerId = null;
+    }
+    if (state.watchId !== null) {
+        navigator.geolocation.clearWatch(state.watchId);
+        state.watchId = null;
+    }
 
     // 释放屏幕常亮锁
     releaseWakeLock();
@@ -418,8 +598,25 @@ function stopTrip() {
     payBtn.style.display = 'inline-block';
 }
 
+// 判断定位点的基础质量，先挡掉空值、无效经纬度和弱信号坏点。
+function isUsableLocationSample(lat, lon, accuracy, timestamp) {
+    return Number.isFinite(lat) &&
+        Number.isFinite(lon) &&
+        Number.isFinite(accuracy) &&
+        Number.isFinite(timestamp) &&
+        accuracy <= MAX_GPS_ACCURACY_METERS;
+}
+
+// 将 GPS 样本写为新的参考点；静止样本也需要更新时间，避免红灯等待后平均速度被摊薄。
+function updateLocationAnchor(lat, lon, timestamp) {
+    state.lastPos = { lat, lon };
+    state.lastTimestamp = timestamp;
+}
+
 // GPS 位置更新处理 (智能防漂移与蠕行计费过滤)
 function onLocationUpdate(position) {
+    if (!state.isRunning) return;
+
     const lat = position.coords.latitude;
     const lon = position.coords.longitude;
     const accuracy = position.coords.accuracy;
@@ -429,79 +626,94 @@ function onLocationUpdate(position) {
     document.getElementById('gps-status').textContent = `GPS: OK (±${Math.round(accuracy)}m)`;
     document.getElementById('gps-status').style.color = '#34c759';
 
-    // 首次定位，只初始化起点坐标和时间戳，不累计里程
+    if (!isUsableLocationSample(lat, lon, accuracy, timestamp)) {
+        document.getElementById('gps-status').textContent = `GPS: Weak (±${Math.round(accuracy || 0)}m)`;
+        document.getElementById('gps-status').style.color = 'orange';
+        return;
+    }
+
+    // 首次定位只初始化采样点和计费点，不累计里程。
     if (!state.lastPos) { 
-        state.lastPos = { lat, lon }; 
-        state.lastTimestamp = timestamp;
+        updateLocationAnchor(lat, lon, timestamp);
+        state.lastChargedPos = { lat, lon };
+        state.lastChargedTimestamp = timestamp;
         return; 
     }
 
-    // 计算两次定位之间的物理距离 (km)
     const dist = haversineDistance(state.lastPos.lat, state.lastPos.lon, lat, lon);
-    // 计算与上一次定位的时间差 (秒)
     const timeDiffSec = (timestamp - state.lastTimestamp) / 1000;
 
-    let isMoving = false;
-
-    // 【智能蠕行与防漂移核心判定】
-    // 1. 如果系统原生的 GPS 瞬时速度明确大于 0.2 m/s (约 0.72 km/h)，判定为真实移动
-    if (speed !== null && speed !== undefined && speed > 0.2) {
-        isMoving = true;
-    } 
-    // 2. 如果系统无法提供 speed，我们通过位移与时间差估算平均速度
-    else if (dist > 0.003) { // 至少位移大于 3 米以排除极微小的传感器抖动
-        const avgSpeedKmh = timeDiffSec > 0 ? (dist / (timeDiffSec / 3600)) : 0;
-        
-        // 如果均速在合理行驶区间 (0.6 km/h ~ 200 km/h) 且 GPS 精度合理（放宽至 80m，防高架及写字楼林立区漏计费），判定为有效行驶
-        if (avgSpeedKmh > 0.6 && avgSpeedKmh < 200 && accuracy < 80) {
-            isMoving = true;
-        }
+    if (timeDiffSec <= 0) {
+        return;
     }
 
-    // 若判定为等红绿灯静止或信号杂无序漂移，直接拦截，不予计费
-    if (!isMoving) return;
+    const avgSpeedKmh = dist / (timeDiffSec / 3600);
+    const reportedSpeedKmh = Number.isFinite(speed) ? speed * 3.6 : null;
+    const passesPhysicsGate = dist <= MAX_SINGLE_SEGMENT_KM && avgSpeedKmh <= MAX_REASONABLE_SPEED_KMH;
 
-    // 确认移动，累计里程，更新上一次位置与时间戳
-    state.distance += dist;
-    state.lastPos = { lat, lon };
-    state.lastTimestamp = timestamp;
+    if (!passesPhysicsGate) {
+        updateLocationAnchor(lat, lon, timestamp);
+        document.getElementById('gps-status').textContent = 'GPS: Jump filtered';
+        document.getElementById('gps-status').style.color = 'orange';
+        return;
+    }
+
+    const hasReportedMovement = reportedSpeedKmh !== null &&
+        reportedSpeedKmh >= MIN_MOVING_SPEED_KMH &&
+        reportedSpeedKmh <= MAX_REASONABLE_SPEED_KMH;
+    const hasMeasuredMovement = dist >= MIN_MOVING_DISTANCE_KM &&
+        avgSpeedKmh >= MIN_MOVING_SPEED_KMH &&
+        avgSpeedKmh <= MAX_REASONABLE_SPEED_KMH;
+
+    // 若判定为等红绿灯静止或轻微信号漂移，更新时间锚点但不累计里程。
+    if (!hasReportedMovement && !hasMeasuredMovement) {
+        updateLocationAnchor(lat, lon, timestamp);
+        return;
+    }
+
+    state.distance = Math.min(state.distance + dist, MAX_NUMERIC_INPUT);
+    state.fareDistance = state.distance;
+    state.lastChargedPos = { lat, lon };
+    state.lastChargedTimestamp = timestamp;
+    updateLocationAnchor(lat, lon, timestamp);
     
+    if (updateNightStatus()) {
+        console.log('[Fare] 夜间状态已切换，按当前时段重新核算车资');
+    }
     recalcFare(); // 重新核算阶梯费用
     updateDisplay(); // 刷新 LED 屏幕
 }
 
 // 定位失败错误提示
 function onLocationError(err) {
+    if (!state.isRunning) return;
+
     document.getElementById('gps-status').textContent = `GPS Error: ${err.message}`;
     document.getElementById('gps-status').style.color = 'red';
 }
 
 // 精密的阶梯价格算法 (支持白天/夜间差价 + 返空加价 + 99.9万硬封顶)
 function recalcFare() {
-    const rate = config.rate;
+    const rate = normalizeRate(config.rate);
+    config.rate = rate;
     const baseMultiplier = state.isNight ? NIGHT_MULTIPLIER : 1.0;
     
-    let baseFare = rate.base * baseMultiplier;
-    let perKmFare = rate.perKm * baseMultiplier;
+    const baseFare = rate.base * baseMultiplier;
+    const perKmFare = rate.perKm * baseMultiplier;
+    const billableDistance = clampNumber(state.fareDistance, 0);
+    const baseKm = rate.baseKm;
+    const emptyThreshold = Math.max(rate.emptyKm, baseKm);
     let fare = baseFare; 
 
-    if (state.distance > rate.baseKm) {
-        const extraDist = state.distance - rate.baseKm;
-        const emptyThreshold = rate.emptyKm; 
-        
-        if (state.distance <= emptyThreshold) {
-             fare += extraDist * perKmFare;
-        } else {
-             // 超过返空里程，部分算正常运价，溢出部分加收返空费率
-             const normalExtra = emptyThreshold - rate.baseKm;
-             fare += normalExtra * perKmFare;
-             const emptyExtra = state.distance - emptyThreshold;
-             fare += emptyExtra * (perKmFare * rate.emptyRate);
-        }
+    if (billableDistance > baseKm) {
+        const normalExtra = Math.max(0, Math.min(billableDistance, emptyThreshold) - baseKm);
+        const emptyExtra = Math.max(0, billableDistance - emptyThreshold);
+        fare += normalExtra * perKmFare;
+        fare += emptyExtra * perKmFare * rate.emptyRate;
     }
     
-    // 【大数溢出防御第一关】强行封顶 999,999.00 元
-    state.currentFare = Math.min(fare, MAX_FARE);
+    // 【大数溢出防御第一关】强行封顶 999,999.00 元，异常数值直接回到起步价。
+    state.currentFare = Number.isFinite(fare) ? Math.min(Math.max(fare, 0), MAX_FARE) : Math.min(baseFare, MAX_FARE);
 }
 
 // 地球表面两点经纬度距离公式 (Haversine Formula)
@@ -603,8 +815,10 @@ function nextStep() {
 function goToTip() {
     playClickSound();
     triggerHaptic(15);
-    state.tollFee = Math.max(0, parseFloat(document.getElementById('toll-fee').value) || 0);
-    state.otherFee = Math.max(0, parseFloat(document.getElementById('other-fee').value) || 0);
+    state.tollFee = clampNumber(document.getElementById('toll-fee').value, 0);
+    state.otherFee = clampNumber(document.getElementById('other-fee').value, 0);
+    document.getElementById('toll-fee').value = state.tollFee || '';
+    document.getElementById('other-fee').value = state.otherFee || '';
     
     document.getElementById('extra-fee-screen').style.display = 'none';
     document.getElementById('tip-screen').style.display = 'flex';
@@ -615,7 +829,7 @@ function goToTip() {
 
 // 刷新 POS 小费网格按钮的值
 function updateTipValues() {
-    const baseTotal = state.currentFare + state.tollFee + state.otherFee;
+    const baseTotal = Math.min(state.currentFare + state.tollFee + state.otherFee, MAX_FARE);
     
     document.getElementById('val-15').textContent = '¥' + (baseTotal * 0.15).toFixed(1);
     document.getElementById('val-20').textContent = '¥' + (baseTotal * 0.20).toFixed(1);
@@ -638,8 +852,8 @@ function selectTip(percent) {
     if (percent === 0.20) document.querySelectorAll('.btn-pos-tip')[1].classList.add('selected');
     if (percent === 0.25) document.querySelectorAll('.btn-pos-tip')[2].classList.add('selected');
     
-    const baseTotal = state.currentFare + state.tollFee + state.otherFee;
-    state.tipFee = baseTotal * percent;
+    const baseTotal = Math.min(state.currentFare + state.tollFee + state.otherFee, MAX_FARE);
+    state.tipFee = Math.min(baseTotal * percent, MAX_FARE);
 }
 
 // 切换到自定义小费输入框
@@ -657,7 +871,7 @@ function showCustomTip() {
 
 // 清空预置小费，使用输入框的自定义金额
 function clearTipSelection() {
-    state.tipFee = Math.max(0, parseFloat(document.getElementById('custom-tip').value) || 0);
+    state.tipFee = clampNumber(document.getElementById('custom-tip').value, 0);
 }
 
 // 进入最终支付单详情页 (含有大数溢出防御限制)
@@ -667,10 +881,11 @@ function goToPay() {
 
     // 兜底再次核算自定义小费
     if (document.getElementById('custom-tip-container').style.display !== 'none') {
-        state.tipFee = Math.max(0, parseFloat(document.getElementById('custom-tip').value) || 0);
+        state.tipFee = clampNumber(document.getElementById('custom-tip').value, 0);
     }
     
-    const total = state.currentFare + state.tollFee + state.otherFee + state.tipFee;
+    const total = [state.currentFare, state.tollFee, state.otherFee, state.tipFee]
+        .reduce((sum, value) => sum + clampNumber(value, 0), 0);
     
     // 最终汇总金额同样加入 999999.00 的硬封顶拦截
     const cappedTotal = Math.min(total, MAX_FARE);
@@ -752,9 +967,11 @@ function resetApp() {
         navigator.geolocation.clearWatch(state.watchId);
         state.watchId = null;
     }
+    releaseWakeLock();
 
     state.isRunning = false;
     state.distance = 0;
+    state.fareDistance = 0;
     state.elapsedTime = 0;
     state.tollFee = 0;
     state.otherFee = 0;
@@ -763,6 +980,8 @@ function resetApp() {
     // 彻底清除上一单的 GPS 轨迹与时间戳，防起步信号瞬发跃变
     state.lastPos = null;
     state.lastTimestamp = 0;
+    state.lastChargedPos = null;
+    state.lastChargedTimestamp = 0;
     
     updateNightStatus(); // 重新核对此时的夜间费率
     const baseMultiplier = state.isNight ? NIGHT_MULTIPLIER : 1.0;

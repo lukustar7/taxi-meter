@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>TAXI METER v1.4.1</title>
+    <title>TAXI METER v1.4.2</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
     <!-- PWA 配置 -->
     <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="icon.svg">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
@@ -91,7 +92,7 @@
                 <label>收款码 (可选)</label>
                 <input type="file" id="qr-upload" accept="image/*" onchange="handleQRUpload(this)">
                 <div id="qr-preview" class="qr-preview"></div>
-                <small>图片仅保存在本地缓存，清除即丢失。</small>
+                <small>仅支持 PNG/JPG/WebP，图片会压缩后保存在本地缓存。</small>
             </div>
             <button class="btn-save" onclick="saveSettings()">保存设置</button>
         </div>
