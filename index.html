@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>TAXI METER v1.4.2</title>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -16,10 +16,10 @@
 
     <!-- 顶部状态栏 -->
     <header class="status-bar">
-        <div class="gps-status" id="gps-status">GPS: Searching...</div>
+        <div class="gps-status" id="gps-status" role="status" aria-live="polite">GPS: Searching...</div>
         <div class="action-buttons">
-            <button class="btn-theme-toggle" id="theme-toggle-btn" onclick="toggleTheme()" title="切换昼夜主题">🌙</button>
-            <button class="btn-settings" onclick="toggleSettings()">⚙️</button>
+            <button class="btn-theme-toggle" id="theme-toggle-btn" type="button" title="切换昼夜主题" aria-label="切换昼夜主题">🌙</button>
+            <button class="btn-settings" id="settings-open-btn" type="button" title="打开设置" aria-label="打开设置">⚙️</button>
         </div>
     </header>
 
@@ -55,9 +55,9 @@
 
         <!-- 物理按钮区 -->
         <div class="control-panel">
-            <button class="btn-phys btn-start" onclick="startTrip()">开始</button>
-            <button class="btn-phys btn-stop" onclick="stopTrip()" disabled>结束</button>
-            <button class="btn-phys btn-next" onclick="nextStep()" style="display:none;">支付</button>
+            <button class="btn-phys btn-start" id="start-trip-btn" type="button">开始</button>
+            <button class="btn-phys btn-stop" id="stop-trip-btn" type="button" disabled>结束</button>
+            <button class="btn-phys btn-next" id="next-step-btn" type="button" style="display:none;">支付</button>
         </div>
     </main>
 
@@ -65,36 +65,36 @@
     <div id="settings-panel" class="overlay-panel">
         <div class="panel-header">
             <h2>设置费率</h2>
-            <button class="btn-close" onclick="toggleSettings()">×</button>
+            <button class="btn-close" id="settings-close-btn" type="button" aria-label="关闭设置">×</button>
         </div>
         <div class="panel-content">
             <div class="form-group">
-                <label>起步价 (元)</label>
-                <input type="number" id="base-fare" value="16" min="0" step="any">
+                <label for="base-fare">起步价 (元)</label>
+                <input type="number" id="base-fare" value="16" min="0" max="999999" step="any">
             </div>
             <div class="form-group">
-                <label>起步里程 (km)</label>
-                <input type="number" id="base-dist" value="3" min="0" step="any">
+                <label for="base-dist">起步里程 (km)</label>
+                <input type="number" id="base-dist" value="3" min="0" max="999999" step="any">
             </div>
             <div class="form-group">
-                <label>续租费 (元/km)</label>
-                <input type="number" id="per-km" value="2.7" min="0" step="any">
+                <label for="per-km">续租费 (元/km)</label>
+                <input type="number" id="per-km" value="2.7" min="0" max="999999" step="any">
             </div>
             <div class="form-group">
-                <label>返空里程起征点 (km)</label>
-                <input type="number" id="empty-dist" value="15" min="0" step="any">
+                <label for="empty-dist">返空里程起征点 (km)</label>
+                <input type="number" id="empty-dist" value="15" min="0" max="999999" step="any">
             </div>
             <div class="form-group">
-                <label>返空加收倍率 (倍，超出起征点后)</label>
-                <input type="number" id="empty-fee" value="1.5" min="0" step="any">
+                <label for="empty-fee">返空加收倍率 (倍，超出起征点后)</label>
+                <input type="number" id="empty-fee" value="1.5" min="1" max="100" step="any">
             </div>
              <div class="form-group">
-                <label>收款码 (可选)</label>
-                <input type="file" id="qr-upload" accept="image/*" onchange="handleQRUpload(this)">
+                <label for="qr-upload">收款码 (可选)</label>
+                <input type="file" id="qr-upload" accept="image/png,image/jpeg,image/webp">
                 <div id="qr-preview" class="qr-preview"></div>
                 <small>仅支持 PNG/JPG/WebP，图片会压缩后保存在本地缓存。</small>
             </div>
-            <button class="btn-save" onclick="saveSettings()">保存设置</button>
+            <button class="btn-save" id="settings-save-btn" type="button">保存设置</button>
         </div>
     </div>
 
@@ -102,16 +102,16 @@
     <div id="extra-fee-screen" class="screen-panel">
         <h2>附加费用</h2>
         <div class="input-group-large">
-            <label>高速/路桥费</label>
-            <input type="number" id="toll-fee" value="0" placeholder="0" min="0" step="any">
+            <label for="toll-fee">高速/路桥费</label>
+            <input type="number" id="toll-fee" value="0" placeholder="0" min="0" max="999999" step="any">
         </div>
         <div class="input-group-large">
-            <label>停车费/其他</label>
-            <input type="number" id="other-fee" value="0" placeholder="0" min="0" step="any">
+            <label for="other-fee">停车费/其他</label>
+            <input type="number" id="other-fee" value="0" placeholder="0" min="0" max="999999" step="any">
         </div>
         <div class="step-buttons">
-            <button class="btn-save btn-back" onclick="goBackToMeter()">← 返回</button>
-            <button class="btn-next-step" onclick="goToTip()">下一步 →</button>
+            <button class="btn-save btn-back" id="back-to-meter-btn" type="button">← 返回</button>
+            <button class="btn-next-step" id="go-to-tip-btn" type="button">下一步 →</button>
         </div>
     </div>
 
@@ -123,17 +123,17 @@
         </div>
         
         <div class="tip-grid">
-            <button class="btn-pos-tip" onclick="selectTip(0.15)">
+            <button class="btn-pos-tip" type="button" data-tip-percent="0.15">
                 <span class="tip-percent">15%</span>
-                <span class="tip-value" id="val-15">¥0</span>
+                <span class="tip-value" data-tip-value="0.15">¥0</span>
             </button>
-            <button class="btn-pos-tip selected" onclick="selectTip(0.20)">
+            <button class="btn-pos-tip selected" type="button" data-tip-percent="0.2">
                 <span class="tip-percent">20%</span>
-                <span class="tip-value" id="val-20">¥0</span>
+                <span class="tip-value" data-tip-value="0.2">¥0</span>
             </button>
-            <button class="btn-pos-tip" onclick="selectTip(0.25)">
+            <button class="btn-pos-tip" type="button" data-tip-percent="0.25">
                 <span class="tip-percent">25%</span>
-                <span class="tip-value" id="val-25">¥0</span>
+                <span class="tip-value" data-tip-value="0.25">¥0</span>
             </button>
         </div>
 
@@ -141,18 +141,19 @@
         <div id="custom-tip-container" class="custom-tip-box" style="display:none;">
             <div class="input-wrapper">
                 <span class="currency-symbol">¥</span>
-                <input type="number" id="custom-tip" placeholder="随意打赏" oninput="clearTipSelection()" min="0" step="any">
+                <label for="custom-tip" class="visually-hidden">自定义小费金额</label>
+                <input type="number" id="custom-tip" placeholder="随意打赏" min="0" max="999999" step="any">
             </div>
         </div>
 
         <div class="tip-footer">
-            <button class="btn-text-only" onclick="selectTip(0)">暂不打赏</button>
-            <button class="btn-text-only" onclick="showCustomTip()">自定义金额</button>
+            <button class="btn-text-only" type="button" data-tip-percent="0">暂不打赏</button>
+            <button class="btn-text-only" id="show-custom-tip-btn" type="button">自定义金额</button>
         </div>
 
         <div class="step-buttons">
-            <button class="btn-save btn-back" onclick="goBackToExtra()">← 修改附加费</button>
-            <button class="btn-confirm-pay" onclick="goToPay()">确认支付 →</button>
+            <button class="btn-save btn-back" id="back-to-extra-btn" type="button">← 修改附加费</button>
+            <button class="btn-confirm-pay" id="go-to-pay-btn" type="button">确认支付 →</button>
         </div>
     </div>
 
@@ -177,8 +178,8 @@
             <p class="paid-hint">请于 5 秒内还款以维持三代优良信用体系 🧱</p>
         </div>
         <div class="step-buttons">
-            <button class="btn-save btn-back" id="btn-pay-back" onclick="goBackToTip()">← 修改小费</button>
-            <button class="btn-home" onclick="resetApp()">再来一单</button>
+            <button class="btn-save btn-back" id="btn-pay-back" type="button">← 修改小费</button>
+            <button class="btn-home" type="button" data-reset-app>再来一单</button>
         </div>
     </div>
 
@@ -229,12 +230,12 @@
         </div>
 
         <!-- 极其显眼的诱导借款付款按钮 -->
-        <button class="btn-phys btn-loan-submit" onclick="submitLoanPayment()">⚡ 立即借款付清（享前5秒免息）</button>
+        <button class="btn-phys btn-loan-submit" id="loan-submit-btn" type="button">⚡ 立即借款付清（享前5秒免息）</button>
         
         <!-- 被冷落的放弃借款重开按钮 (灰色小字) -->
-        <button class="btn-text-only btn-give-up" onclick="resetApp()">放弃借款，当场去工地搬砖抵债 🧱</button>
+        <button class="btn-text-only btn-give-up" type="button" data-reset-app>放弃借款，当场去工地搬砖抵债 🧱</button>
     </div>
 
-    <script src="script.js"></script>
+    <script type="module" src="src/app.js"></script>
 </body>
 </html>

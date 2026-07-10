@@ -1,0 +1,11 @@
+{
+  "name": "retro-taxi-meter",
+  "version": "1.4.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/domain.js && node --check src/device.js && node --check src/app.js && node --check service-worker.js",
+    "test": "node --test",
+    "build": "npm run check && npm test"
+  }
+}
