@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>TAXI METER v1.4.2</title>
+    <title>TAXI METER v1.4.3</title>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <!-- PWA 配置 -->
@@ -16,7 +16,7 @@
 
     <!-- 顶部状态栏 -->
     <header class="status-bar">
-        <div class="gps-status" id="gps-status" role="status" aria-live="polite">GPS: Searching...</div>
+        <div class="gps-status" id="gps-status" role="status" aria-live="polite">🛰️ 正在搜星...</div>
         <div class="action-buttons">
             <button class="btn-theme-toggle" id="theme-toggle-btn" type="button" title="切换昼夜主题" aria-label="切换昼夜主题">🌙</button>
             <button class="btn-settings" id="settings-open-btn" type="button" title="打开设置" aria-label="打开设置">⚙️</button>
@@ -26,28 +26,39 @@
     <!-- 主屏幕 (计价器) -->
     <main id="meter-screen" class="active-screen">
         <div class="meter-box">
-            <!-- 空车灯 (翻牌器) -->
-            <div class="empty-sign" id="empty-sign">空车</div>
+            <!-- 空车灯 (3D立体翻牌器) -->
+            <div class="empty-sign-wrapper">
+                <div class="empty-sign" id="empty-sign">空车</div>
+            </div>
 
-            <!-- LED 显示区 -->
+            <!-- LED 7段发光数码管显示区 (带888暗格底纹) -->
             <div class="led-display">
                 <div class="led-row main-row">
                     <span class="currency">¥</span>
-                    <span class="value" id="display-price">0.00</span>
+                    <div class="led-digits-wrap">
+                        <span class="led-ghost" aria-hidden="true">888888.88</span>
+                        <span class="value" id="display-price">0.00</span>
+                    </div>
                 </div>
                 <div class="led-row sub-row">
                     <div class="sub-item">
                         <span class="label">KM</span>
-                        <span class="value" id="display-km">0.0</span>
+                        <div class="led-digits-wrap">
+                            <span class="led-ghost" aria-hidden="true">888.8</span>
+                            <span class="value" id="display-km">0.0</span>
+                        </div>
                     </div>
                     <div class="sub-item">
                         <span class="label">TIME</span>
-                        <span class="value" id="display-time">00:00</span>
+                        <div class="led-digits-wrap">
+                            <span class="led-ghost" aria-hidden="true">88:88</span>
+                            <span class="value" id="display-time">00:00</span>
+                        </div>
                     </div>
                 </div>
                 <!-- 费率与夜间指示 -->
                 <div class="rate-bar">
-                    <div class="rate-info" id="rate-info">上海 (16.0/3km)</div>
+                    <div class="rate-info" id="rate-info">上海 (16.0元/3km)</div>
                     <div class="night-indicator" id="night-indicator">NIGHT 夜间</div>
                 </div>
             </div>
@@ -56,8 +67,11 @@
         <!-- 物理按钮区 -->
         <div class="control-panel">
             <button class="btn-phys btn-start" id="start-trip-btn" type="button">开始</button>
-            <button class="btn-phys btn-stop" id="stop-trip-btn" type="button" disabled>结束</button>
-            <button class="btn-phys btn-next" id="next-step-btn" type="button" style="display:none;">支付</button>
+            <button class="btn-phys btn-stop" id="stop-trip-btn" type="button" disabled>
+                <span class="btn-progress-fill" id="stop-btn-progress"></span>
+                <span class="btn-label" id="stop-btn-label">长按结束</span>
+            </button>
+            <button class="btn-phys btn-next" id="next-step-btn" type="button" style="display:none;">查看小票</button>
         </div>
     </main>
 
@@ -89,97 +103,137 @@
                 <input type="number" id="empty-fee" value="1.5" min="1" max="100" step="any">
             </div>
              <div class="form-group">
-                <label for="qr-upload">收款码 (可选)</label>
+                <label for="qr-upload">收款码 (自动支持正方形裁剪)</label>
                 <input type="file" id="qr-upload" accept="image/png,image/jpeg,image/webp">
                 <div id="qr-preview" class="qr-preview"></div>
-                <small>仅支持 PNG/JPG/WebP，图片会压缩后保存在本地缓存。</small>
+                <small>上传后可自由居中裁剪正方形二维码，保存在本地缓存。</small>
             </div>
             <button class="btn-save" id="settings-save-btn" type="button">保存设置</button>
         </div>
     </div>
 
-    <!-- 附加费页面 -->
-    <div id="extra-fee-screen" class="screen-panel">
-        <h2>附加费用</h2>
-        <div class="input-group-large">
-            <label for="toll-fee">高速/路桥费</label>
-            <input type="number" id="toll-fee" value="0" placeholder="0" min="0" max="999999" step="any">
-        </div>
-        <div class="input-group-large">
-            <label for="other-fee">停车费/其他</label>
-            <input type="number" id="other-fee" value="0" placeholder="0" min="0" max="999999" step="any">
-        </div>
-        <div class="step-buttons">
-            <button class="btn-save btn-back" id="back-to-meter-btn" type="button">← 返回</button>
-            <button class="btn-next-step" id="go-to-tip-btn" type="button">下一步 →</button>
-        </div>
-    </div>
-
-    <!-- 小费页面 (Neta: POS Style Dark) -->
-    <div id="tip-screen" class="screen-panel tip-theme">
-        <div class="tip-header">
-            <h2>给司机加个鸡腿？🍗</h2>
-            <p>100% 的小费归司机所有</p>
-        </div>
-        
-        <div class="tip-grid">
-            <button class="btn-pos-tip" type="button" data-tip-percent="0.15">
-                <span class="tip-percent">15%</span>
-                <span class="tip-value" data-tip-value="0.15">¥0</span>
-            </button>
-            <button class="btn-pos-tip selected" type="button" data-tip-percent="0.2">
-                <span class="tip-percent">20%</span>
-                <span class="tip-value" data-tip-value="0.2">¥0</span>
-            </button>
-            <button class="btn-pos-tip" type="button" data-tip-percent="0.25">
-                <span class="tip-percent">25%</span>
-                <span class="tip-value" data-tip-value="0.25">¥0</span>
-            </button>
-        </div>
-
-        <!-- 自定义输入区域 (默认隐藏，点击自定义后显示) -->
-        <div id="custom-tip-container" class="custom-tip-box" style="display:none;">
-            <div class="input-wrapper">
-                <span class="currency-symbol">¥</span>
-                <label for="custom-tip" class="visually-hidden">自定义小费金额</label>
-                <input type="number" id="custom-tip" placeholder="随意打赏" min="0" max="999999" step="any">
+    <!-- 收款码正方形裁剪弹窗 -->
+    <div id="qr-crop-modal" class="crop-modal" style="display:none;">
+        <div class="crop-modal-content">
+            <h3>✂️ 裁剪正方形收款码</h3>
+            <div class="crop-viewport">
+                <canvas id="crop-canvas"></canvas>
+            </div>
+            <div class="crop-slider-bar">
+                <label for="crop-zoom">缩放选区：</label>
+                <input type="range" id="crop-zoom" min="1" max="3" step="0.02" value="1">
+            </div>
+            <div class="crop-buttons">
+                <button type="button" id="crop-cancel-btn" class="btn-crop-cancel">取消</button>
+                <button type="button" id="crop-confirm-btn" class="btn-crop-confirm">确认使用</button>
             </div>
         </div>
-
-        <div class="tip-footer">
-            <button class="btn-text-only" type="button" data-tip-percent="0">暂不打赏</button>
-            <button class="btn-text-only" id="show-custom-tip-btn" type="button">自定义金额</button>
-        </div>
-
-        <div class="step-buttons">
-            <button class="btn-save btn-back" id="back-to-extra-btn" type="button">← 修改附加费</button>
-            <button class="btn-confirm-pay" id="go-to-pay-btn" type="button">确认支付 →</button>
-        </div>
     </div>
 
-    <!-- 支付页面 -->
-    <div id="pay-screen" class="screen-panel pay-mode">
-        <h2 id="pay-screen-title">请支付</h2>
-        <div class="final-amount">¥<span id="final-total">0.00</span></div>
-        <div class="bill-details">
-            <p>里程费: ¥<span id="bill-meter">0.00</span></p>
-            <p>附加费: ¥<span id="bill-extra">0.00</span></p>
-            <p>小费: ¥<span id="bill-tip">0.00</span></p>
-        </div>
-        <div class="qr-code-area" id="pay-qr-area">
-            <!-- 默认或用户上传的二维码 -->
-            <img src="" id="pay-qr-img" alt="收款码" style="display:none;">
-            <div id="default-qr-text" style="display:block;">(未上传收款码)<br>谢谢老板！老板大气！</div>
-        </div>
-        <!-- ⚡ 尊贵网贷代扣结清电子收据 (出厂默认隐藏) -->
-        <div class="paid-stamp-box" id="paid-stamp-area" style="display:none;">
-            <div class="paid-seal">已结清 PAID</div>
-            <p class="paid-note">💰 车资已由【打车借呗】全额扣除并付讫</p>
-            <p class="paid-hint">请于 5 秒内还款以维持三代优良信用体系 🧱</p>
-        </div>
-        <div class="step-buttons">
-            <button class="btn-save btn-back" id="btn-pay-back" type="button">← 修改小费</button>
-            <button class="btn-home" type="button" data-reset-app>再来一单</button>
+    <!-- 🧾 一体化复古热敏打印小票结算屏 -->
+    <div id="receipt-screen" class="screen-panel receipt-theme" style="display:none;">
+        <div class="receipt-printer-slot"></div>
+        <div class="receipt-paper" id="receipt-paper">
+            <div class="receipt-header">
+                <div class="receipt-title">🚖 复古出租汽车客运发票</div>
+                <div class="receipt-subtitle">TAXICAB PASSENGER RECEIPT</div>
+                <div class="receipt-dashed-line"></div>
+                <div class="receipt-meta-row">
+                    <span>日期：<b id="rec-date">2026-08-20</b></span>
+                    <span>耗时：<b id="rec-time">00:00</b></span>
+                </div>
+                <div class="receipt-meta-row">
+                    <span>里程：<b id="rec-dist">0.0 km</b></span>
+                    <span>费率：<b id="rec-rate">16元/3km</b></span>
+                </div>
+            </div>
+
+            <div class="receipt-dashed-line"></div>
+
+            <!-- 车费与附加费明细 -->
+            <div class="receipt-fee-block">
+                <div class="fee-row">
+                    <span class="fee-name">里程运价</span>
+                    <span class="fee-amount">¥<span id="rec-meter-fare">0.00</span></span>
+                </div>
+                <div class="fee-row fee-input-row">
+                    <span class="fee-name">路桥/高速费</span>
+                    <div class="fee-input-wrap">
+                        <span>¥</span>
+                        <input type="number" id="toll-fee" value="" placeholder="0" min="0" max="999999" step="any">
+                    </div>
+                </div>
+                <div class="fee-row fee-input-row">
+                    <span class="fee-name">停车/其他费</span>
+                    <div class="fee-input-wrap">
+                        <span>¥</span>
+                        <input type="number" id="other-fee" value="" placeholder="0" min="0" max="999999" step="any">
+                    </div>
+                </div>
+            </div>
+
+            <div class="receipt-dashed-line"></div>
+
+            <!-- 美式小费恶搞互动区 -->
+            <div class="receipt-tip-section">
+                <div class="tip-prompt">🍗 给司机加个鸡腿？(100%归司机)</div>
+                <div class="tip-grid">
+                    <button class="btn-pos-tip" type="button" data-tip-percent="0.15">
+                        <span class="tip-percent">15%</span>
+                        <span class="tip-value" data-tip-value="0.15">¥0</span>
+                    </button>
+                    <button class="btn-pos-tip selected" type="button" data-tip-percent="0.2">
+                        <span class="tip-percent">20%</span>
+                        <span class="tip-value" data-tip-value="0.2">¥0</span>
+                    </button>
+                    <button class="btn-pos-tip" type="button" data-tip-percent="0.25">
+                        <span class="tip-percent">25%</span>
+                        <span class="tip-value" data-tip-value="0.25">¥0</span>
+                    </button>
+                </div>
+                <div class="tip-custom-row">
+                    <button class="btn-text-only" type="button" data-tip-percent="0">暂不打赏</button>
+                    <button class="btn-text-only" id="show-custom-tip-btn" type="button">自定义金额</button>
+                </div>
+                <div id="custom-tip-container" class="custom-tip-box" style="display:none;">
+                    <div class="input-wrapper">
+                        <span class="currency-symbol">¥</span>
+                        <input type="number" id="custom-tip" placeholder="随意打赏" min="0" max="999999" step="any">
+                    </div>
+                </div>
+            </div>
+
+            <div class="receipt-dashed-line"></div>
+
+            <!-- 实付应收总额 -->
+            <div class="receipt-total-section">
+                <div class="total-label">应付总额 TOTAL</div>
+                <div class="total-value">¥<span id="final-total">0.00</span></div>
+            </div>
+
+            <!-- 收款二维码区域 -->
+            <div class="receipt-qr-section">
+                <div class="qr-code-box" id="pay-qr-area">
+                    <img src="" id="pay-qr-img" alt="收款码" style="display:none;">
+                    <div id="default-qr-text" style="display:block;">(未上传收款码)<br>谢谢老板！老板大气！</div>
+                </div>
+                <!-- ⚡ 尊贵网贷代扣结清电子印章 -->
+                <div class="paid-stamp-box" id="paid-stamp-area" style="display:none;">
+                    <div class="paid-seal">已结清 PAID</div>
+                    <p class="paid-note">💰 车资已由【打车借呗】全额付讫</p>
+                </div>
+            </div>
+
+            <div class="receipt-dashed-line"></div>
+
+            <!-- 👉 向右滑动撕纸操作区 -->
+            <div class="tear-action-area">
+                <div class="tear-slider-track" id="tear-slider-track">
+                    <div class="tear-slider-thumb" id="tear-slider-thumb">✂️ 撕下</div>
+                    <span class="tear-slider-text">👉 向右滑动撕下小票结单</span>
+                </div>
+                <button class="btn-tear-fallback" id="btn-tear-fallback" type="button">直接撕下小票并接下一单</button>
+            </div>
         </div>
     </div>
 

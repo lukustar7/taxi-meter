@@ -1,5 +1,5 @@
 // 应用版本只在一个位置维护，页面标题、离线缓存版本和发布记录需与它保持一致。
-export const APP_VERSION = '1.4.2';
+export const APP_VERSION = '1.4.3';
 
 // 默认上海运价是所有外部配置的安全基线；冻结对象可防止运行时被意外改写。
 export const DEFAULT_RATE = Object.freeze({
@@ -76,29 +76,100 @@ export function isNightTime(date = new Date()) {
 }
 
 /**
- * 按“起步价 -> 普通续租 -> 返空加价”的顺序计算里程费。
- * 夜间倍率同时作用于起步价和每公里单价，最终金额统一封顶。
+ * 跨时段分段累计计价引擎：
+ * 消除跨越 23:00 或 05:00 时对前序已行驶历史里程的全量追溯漏洞。
+ * 起步价按发车时段决定，后续产生的白天与夜间里程分别应用对应倍率。
  */
-export function calculateFare(rawRate, rawDistance, isNight = false) {
+export function calculateSegmentedFare({
+    rawRate,
+    dayDistance = 0,
+    nightDistance = 0,
+    startIsNight = false
+}) {
     const rate = normalizeRate(rawRate);
-    const distance = clampNumber(rawDistance, 0);
-    const multiplier = isNight ? NIGHT_MULTIPLIER : 1;
-    const baseFare = rate.base * multiplier;
-    const perKmFare = rate.perKm * multiplier;
-    let fare = baseFare;
+    const dayKm = clampNumber(dayDistance, 0);
+    const nightKm = clampNumber(nightDistance, 0);
+    const totalKm = dayKm + nightKm;
 
-    if (distance > rate.baseKm) {
-        const normalDistance = Math.max(0, Math.min(distance, rate.emptyKm) - rate.baseKm);
-        const emptyDistance = Math.max(0, distance - rate.emptyKm);
-        fare += normalDistance * perKmFare;
-        fare += emptyDistance * perKmFare * rate.emptyRate;
+    const baseFareMultiplier = startIsNight ? NIGHT_MULTIPLIER : 1;
+    const baseFare = rate.base * baseFareMultiplier;
+
+    if (totalKm <= rate.baseKm) {
+        return Math.min(Math.max(baseFare, 0), MAX_FARE);
     }
+
+    // 计算各时段超出起步里程的有效续租里程
+    let dayExtra = 0;
+    let nightExtra = 0;
+
+    if (startIsNight) {
+        if (nightKm >= rate.baseKm) {
+            nightExtra = nightKm - rate.baseKm;
+            dayExtra = dayKm;
+        } else {
+            nightExtra = 0;
+            dayExtra = Math.max(0, dayKm - (rate.baseKm - nightKm));
+        }
+    } else {
+        if (dayKm >= rate.baseKm) {
+            dayExtra = dayKm - rate.baseKm;
+            nightExtra = nightKm;
+        } else {
+            dayExtra = 0;
+            nightExtra = Math.max(0, nightKm - (rate.baseKm - dayKm));
+        }
+    }
+
+    const normalCapacity = Math.max(0, rate.emptyKm - rate.baseKm);
+
+    let dayNormal = 0;
+    let dayEmpty = 0;
+    let nightNormal = 0;
+    let nightEmpty = 0;
+
+    // 起步时段产生的超额里程先填充普通续租区间，超出后进入返空加价区间
+    if (startIsNight) {
+        nightNormal = Math.min(nightExtra, normalCapacity);
+        nightEmpty = Math.max(0, nightExtra - normalCapacity);
+        const remainingNormal = Math.max(0, normalCapacity - nightNormal);
+        dayNormal = Math.min(dayExtra, remainingNormal);
+        dayEmpty = Math.max(0, dayExtra - remainingNormal);
+    } else {
+        dayNormal = Math.min(dayExtra, normalCapacity);
+        dayEmpty = Math.max(0, dayExtra - normalCapacity);
+        const remainingNormal = Math.max(0, normalCapacity - dayNormal);
+        nightNormal = Math.min(nightExtra, remainingNormal);
+        nightEmpty = Math.max(0, nightExtra - remainingNormal);
+    }
+
+    const dayPerKm = rate.perKm;
+    const nightPerKm = rate.perKm * NIGHT_MULTIPLIER;
+
+    let fare = baseFare;
+    fare += dayNormal * dayPerKm;
+    fare += dayEmpty * dayPerKm * rate.emptyRate;
+    fare += nightNormal * nightPerKm;
+    fare += nightEmpty * nightPerKm * rate.emptyRate;
 
     if (!Number.isFinite(fare)) {
         return Math.min(baseFare, MAX_FARE);
     }
 
     return Math.min(Math.max(fare, 0), MAX_FARE);
+}
+
+/**
+ * 单区间兼容入口：
+ * 满足常规单时段快速计算，内部映射至分段计价引擎。
+ */
+export function calculateFare(rawRate, rawDistance, isNight = false) {
+    const distance = clampNumber(rawDistance, 0);
+    return calculateSegmentedFare({
+        rawRate,
+        dayDistance: isNight ? 0 : distance,
+        nightDistance: isNight ? distance : 0,
+        startIsNight: Boolean(isNight)
+    });
 }
 
 /**

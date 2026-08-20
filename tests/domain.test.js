@@ -9,6 +9,7 @@ import {
     calculateBill,
     calculateElapsedSeconds,
     calculateFare,
+    calculateSegmentedFare,
     calculateSuggestedTip,
     clampNumber,
     haversineDistance,
@@ -65,10 +66,23 @@ describe('数字与运价边界', () => {
     it('起步里程内只收起步价', () => {
         assert.equal(calculateFare(DEFAULT_RATE, 0), 16);
         assert.equal(calculateFare(DEFAULT_RATE, 3), 16);
+        assert.equal(calculateSegmentedFare({ rawRate: DEFAULT_RATE, dayDistance: 2, nightDistance: 1, startIsNight: false }), 16);
+        assert.equal(calculateSegmentedFare({ rawRate: DEFAULT_RATE, dayDistance: 1, nightDistance: 2, startIsNight: true }), 16 * 1.3);
     });
 
     it('普通续租区间按每公里单价计费', () => {
         assertClose(calculateFare(DEFAULT_RATE, 10), 34.9);
+    });
+
+    it('跨时段分段计费：白天上车开入夜间，各自计算对应单价', () => {
+        // 白天跑 5km（前3km起步16元，后2km续租 2*2.7=5.4），夜间跑 5km（5*2.7*1.3=17.55），总计 16 + 5.4 + 17.55 = 38.95
+        const fare = calculateSegmentedFare({
+            rawRate: DEFAULT_RATE,
+            dayDistance: 5,
+            nightDistance: 5,
+            startIsNight: false
+        });
+        assertClose(fare, 38.95);
     });
 
     it('超过返空起征点后只对超出部分应用返空倍率', () => {

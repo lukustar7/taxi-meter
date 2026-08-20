@@ -96,11 +96,16 @@ body {
     flex-direction: column;
 }
 
-/* 空车灯 */
-.empty-sign {
+/* 空车灯 3D 透视包裹层 */
+.empty-sign-wrapper {
     position: absolute;
-    top: -20px;
+    top: -24px;
     left: 30px;
+    perspective: 800px;
+    z-index: 10;
+}
+
+.empty-sign {
     background: #ff3b30;
     color: white;
     padding: 8px 20px;
@@ -108,25 +113,57 @@ body {
     font-weight: bold;
     border-radius: 6px;
     text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-    transform-origin: top center;
-    transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    transform-origin: bottom center;
+    transform-style: preserve-3d;
+    transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.3s;
     border: 2px solid #fff;
 }
 
 .empty-sign.flipped {
-    transform: rotateX(90deg);
-    background: #333;
+    transform: rotateX(-86deg);
+    background: #2a2a2a;
     color: #555;
     border-color: #444;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
 }
 
-/* LED 显示区 */
+/* LED 7段数码管发光与暗格底纹显示区 */
 .led-display {
     font-family: 'Courier New', monospace;
     text-align: right;
     width: 100%;
+}
+
+.led-digits-wrap {
+    position: relative;
+    display: inline-block;
+}
+
+.led-ghost {
+    position: absolute;
+    top: 0;
+    right: 0;
+    color: rgba(255, 59, 48, 0.08); /* 熄灭的暗格 8 字底纹 */
+    user-select: none;
+    pointer-events: none;
+    z-index: 1;
+    font-family: inherit;
+    font-weight: bold;
+    letter-spacing: inherit;
+}
+
+.sub-item .led-ghost {
+    color: rgba(52, 199, 89, 0.08);
+}
+
+.sub-item:last-child .led-ghost {
+    color: rgba(255, 204, 0, 0.08);
+}
+
+.led-digits-wrap .value {
+    position: relative;
+    z-index: 2;
 }
 
 .led-row { margin-bottom: 15px; }
@@ -193,11 +230,37 @@ body {
     position: relative;
     top: 0;
     font-family: -apple-system, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .btn-phys:active { top: 6px; box-shadow: 0 0 0 rgba(0,0,0,0.4), inset 0 2px 5px rgba(0,0,0,0.2); }
 .btn-start { background: var(--btn-start); }
-.btn-stop { background: var(--btn-stop); }
+
+/* 长按结束按钮与进度填充 */
+.btn-stop {
+    background: var(--btn-stop);
+    position: relative;
+    overflow: hidden;
+    touch-action: none;
+}
+
+.btn-progress-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 0%;
+    background: rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+    transition: width 0.05s linear;
+}
+
+.btn-label {
+    position: relative;
+    z-index: 2;
+}
+
 .btn-next { background: var(--btn-next); }
 .btn-phys:disabled { background: #333; color: #555; box-shadow: none; cursor: not-allowed; top: 6px; }
 
@@ -253,7 +316,7 @@ input[type="number"], select, input[type="text"] {
     height: 56px;
     outline: none;
     transition: border-color 0.2s, box-shadow 0.2s;
-    font-family: -apple-system, monospace; /* 数字用等宽 */
+    font-family: -apple-system, monospace;
 }
 
 input:focus, select:focus {
@@ -261,7 +324,6 @@ input:focus, select:focus {
     box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.2);
 }
 
-/* 收款码预览使用稳定尺寸，图片加载前后不会推动设置面板横向跳动。 */
 .qr-preview {
     margin-top: 12px;
 }
@@ -280,16 +342,8 @@ input:focus, select:focus {
     border-radius: 6px;
 }
 
-/* 附加费页面特定样式 */
-#extra-fee-screen input {
-    text-align: right;
-    font-size: 28px;
-    color: var(--led-green); /* 钱数用绿色 */
-    font-weight: bold;
-}
-
 /* 按钮美化 */
-.btn-save, .btn-next-step, .btn-home, .btn-confirm-pay {
+.btn-save {
     width: 100%;
     padding: 20px;
     background: var(--pos-blue);
@@ -303,8 +357,6 @@ input:focus, select:focus {
     cursor: pointer;
 }
 
-.btn-save:active, .btn-next-step:active { transform: scale(0.98); }
-
 .btn-close {
     font-size: 32px;
     padding: 10px;
@@ -316,6 +368,8 @@ input:focus, select:focus {
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    color: #fff;
+    border: none;
 }
 
 /* 设置面板头部 */
@@ -328,88 +382,433 @@ input:focus, select:focus {
 
 .panel-header h2 { margin: 0; }
 
-/* 支付页 */
-.pay-mode { align-items: center; text-align: center; }
-.final-amount { font-size: 18vw; color: var(--led-red); font-weight: bold; margin: 20px 0; text-shadow: 0 0 10px rgba(255, 59, 48, 0.4); }
-@media (min-width: 500px) { .final-amount { font-size: 90px; } }
-.bill-details { width: 100%; background: var(--pos-card-bg); padding: 20px; border-radius: 16px; margin-bottom: 20px; text-align: left; font-size: 16px; color: var(--pos-text-sub); border: 1px solid #333; }
-.bill-details p { display: flex; justify-content: space-between; margin: 10px 0; border-bottom: 1px dashed #444; padding-bottom: 10px; }
-.bill-details span { color: white; font-weight: bold; }
-.qr-code-area { width: 260px; height: 260px; background: white; margin: 30px auto; display: flex; align-items: center; justify-content: center; border-radius: 16px; overflow: hidden; color: black; font-weight: bold; }
-.qr-code-area img { width: 100%; height: 100%; object-fit: contain; }
-.btn-home { background: #333; box-shadow: none; }
+/* ================= ✂️ 收款码正方形裁剪弹窗 ================= */
+.crop-modal {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
 
-/* ================= POS Tip Style (Refined) ================= */
-.tip-theme { background-color: var(--bg-color); }
+.crop-modal-content {
+    background: #1c1c1e;
+    border: 1px solid #444;
+    border-radius: 18px;
+    padding: 20px;
+    width: 100%;
+    max-width: 360px;
+    text-align: center;
+    color: #fff;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+}
 
-.tip-header { text-align: center; margin-bottom: 40px; margin-top: 30px; }
-.tip-header h2 { font-size: 32px; margin: 0 0 10px 0; }
-.tip-header p { font-size: 16px; color: var(--pos-text-sub); margin: 0; }
+.crop-modal-content h3 {
+    margin-top: 0;
+    font-size: 20px;
+    margin-bottom: 15px;
+}
 
-.tip-grid { display: flex; gap: 15px; margin-bottom: 30px; justify-content: center; }
+.crop-viewport {
+    width: 240px;
+    height: 240px;
+    margin: 10px auto 15px;
+    border: 2px dashed var(--pos-blue);
+    border-radius: 8px;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.crop-viewport canvas {
+    max-width: 100%;
+    max-height: 100%;
+}
+
+.crop-slider-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #aaa;
+    margin-bottom: 15px;
+}
+
+.crop-slider-bar input {
+    flex: 1;
+    margin-left: 10px;
+    height: 6px;
+    accent-color: var(--pos-blue);
+}
+
+.crop-buttons {
+    display: flex;
+    gap: 12px;
+}
+
+.btn-crop-cancel, .btn-crop-confirm {
+    flex: 1;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: bold;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+}
+
+.btn-crop-cancel {
+    background: #333;
+    color: #ccc;
+}
+
+.btn-crop-confirm {
+    background: var(--pos-blue);
+    color: #fff;
+}
+
+/* ================= 🧾 一体化复古热敏打印小票结算屏 ================= */
+.receipt-theme {
+    background: #0d0e10;
+    align-items: center;
+    padding-top: calc(env(safe-area-inset-top) + 15px);
+    padding-bottom: calc(env(safe-area-inset-bottom) + 25px);
+}
+
+.receipt-printer-slot {
+    width: 92%;
+    max-width: 440px;
+    height: 14px;
+    background: #050505;
+    border: 2px solid #333;
+    border-radius: 8px 8px 0 0;
+    box-shadow: inset 0 4px 8px rgba(0,0,0,0.9);
+    margin-bottom: -4px;
+    z-index: 10;
+}
+
+.receipt-paper {
+    width: 92%;
+    max-width: 440px;
+    background: #fbfbf6; /* 微黄复古热敏纸质感 */
+    color: #1a1a1a;
+    font-family: 'Courier New', monospace, -apple-system;
+    border-radius: 0 0 4px 4px;
+    padding: 22px 18px 28px;
+    box-shadow: 0 12px 35px rgba(0,0,0,0.65), inset 0 0 50px rgba(0,0,0,0.03);
+    position: relative;
+    animation: receiptPrintRoll 0.55s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: transform 0.2s ease, opacity 0.2s ease;
+    touch-action: pan-y;
+}
+
+@keyframes receiptPrintRoll {
+    0% { transform: translateY(-40px); opacity: 0; clip-path: inset(0 0 100% 0); }
+    100% { transform: translateY(0); opacity: 1; clip-path: inset(0 0 0 0); }
+}
+
+.receipt-paper::after {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    left: 0;
+    right: 0;
+    height: 10px;
+    background: radial-gradient(circle, transparent, transparent 50%, #fbfbf6 50%, #fbfbf6 100%);
+    background-size: 14px 14px;
+}
+
+.receipt-title {
+    font-size: 17px;
+    font-weight: 900;
+    text-align: center;
+    letter-spacing: 0.5px;
+    color: #000;
+}
+
+.receipt-subtitle {
+    font-size: 10px;
+    text-align: center;
+    color: #666;
+    margin-bottom: 10px;
+    letter-spacing: 0.5px;
+}
+
+.receipt-dashed-line {
+    border-bottom: 2px dashed #999;
+    margin: 12px 0;
+}
+
+.receipt-meta-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #444;
+    margin-bottom: 3px;
+}
+
+.receipt-fee-block {
+    font-size: 14px;
+}
+
+.fee-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-weight: bold;
+}
+
+.fee-input-wrap {
+    display: flex;
+    align-items: center;
+    background: #e8e8e3;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    padding: 2px 8px;
+}
+
+.fee-input-wrap input {
+    width: 80px;
+    height: 32px;
+    background: transparent;
+    border: none;
+    color: #111;
+    font-size: 16px;
+    font-weight: bold;
+    text-align: right;
+    font-family: inherit;
+    outline: none;
+}
+
+.receipt-tip-section {
+    text-align: center;
+}
+
+.tip-prompt {
+    font-size: 13px;
+    font-weight: bold;
+    color: #222;
+    margin-bottom: 10px;
+}
+
+.tip-grid {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+    justify-content: center;
+}
 
 .btn-pos-tip {
     flex: 1;
-    background: var(--pos-card-bg);
-    border: 2px solid transparent;
-    border-radius: 16px;
-    padding: 20px 5px;
+    background: #e6e6df;
+    border: 2px solid #ccc;
+    border-radius: 12px;
+    padding: 10px 4px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    color: #222;
     transition: all 0.2s;
-    height: 140px;
-    color: white;
 }
 
-.btn-pos-tip .tip-percent { font-size: 32px; font-weight: 800; margin-bottom: 10px; }
-.btn-pos-tip .tip-value { font-size: 16px; color: var(--pos-text-sub); }
+.btn-pos-tip .tip-percent { font-size: 20px; font-weight: 800; }
+.btn-pos-tip .tip-value { font-size: 12px; color: #555; }
 
 .btn-pos-tip.selected {
-    background: var(--pos-blue);
-    color: #FFF;
-    border-color: var(--pos-blue);
-    box-shadow: 0 0 20px rgba(10, 132, 255, 0.4);
-    transform: translateY(-2px);
+    background: #222;
+    color: #fff;
+    border-color: #000;
 }
-.btn-pos-tip.selected .tip-value { color: rgba(255,255,255,0.9); }
 
-.custom-tip-box { margin-bottom: 30px; width: 100%; }
+.btn-pos-tip.selected .tip-value { color: #ccc; }
+
+.tip-custom-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+}
+
+.tip-custom-row .btn-text-only {
+    background: none;
+    border: none;
+    color: #555;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.custom-tip-box {
+    margin-top: 8px;
+}
 
 .input-wrapper {
     display: flex;
     align-items: center;
-    background: var(--pos-card-bg);
-    border-radius: 16px;
-    padding: 5px 20px;
-    border: 2px solid #444; /* 默认边框 */
-    transition: border-color 0.2s;
+    background: #e8e8e3;
+    border-radius: 8px;
+    padding: 4px 12px;
+    border: 1px solid #bbb;
 }
 
-.input-wrapper:focus-within {
-    border-color: var(--pos-blue);
-    box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.2);
-}
-
-.currency-symbol { font-size: 28px; color: var(--pos-text-sub); margin-right: 10px; }
+.currency-symbol { font-size: 18px; color: #555; margin-right: 6px; }
 
 #custom-tip {
     background: transparent;
     border: none;
-    color: white;
-    font-size: 28px;
+    color: #111;
+    font-size: 18px;
     width: 100%;
-    height: 60px;
+    height: 36px;
     outline: none;
     padding: 0;
 }
 
-.tip-footer { display: flex; justify-content: space-between; padding: 0 10px; margin-bottom: 30px; }
-.btn-text-only { background: none; border: none; font-size: 16px; color: var(--pos-text-sub); padding: 10px 20px; cursor: pointer; font-weight: 500; }
+.receipt-total-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 4px 0;
+}
 
-/* ================= 昼夜主题 & 白天 LCD 液晶屏样式 ================= */
+.total-label {
+    font-size: 15px;
+    font-weight: 900;
+}
+
+.total-value {
+    font-size: 32px;
+    font-weight: 900;
+    color: #d32f2f;
+    font-family: 'Courier New', monospace;
+}
+
+.receipt-qr-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 10px 0 5px;
+}
+
+.qr-code-box {
+    width: 160px;
+    height: 160px;
+    background: #fff;
+    border: 2px solid #333;
+    border-radius: 8px;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 12px;
+    color: #444;
+}
+
+.qr-code-box img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* ⚡ 网贷扣款成功的已结清印章 ⚡ */
+.paid-stamp-box {
+    text-align: center;
+    margin: 10px auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    animation: stampAppear 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes stampAppear {
+    0% { transform: scale(3.5); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+.paid-seal {
+    border: 4px solid #10b981;
+    color: #10b981;
+    font-size: 26px;
+    font-weight: 900;
+    padding: 6px 18px;
+    border-radius: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    transform: rotate(-8deg);
+    margin-bottom: 8px;
+    display: inline-block;
+}
+
+.paid-note {
+    font-size: 13px;
+    color: #222;
+    margin: 3px 0;
+    font-weight: bold;
+}
+
+/* 👉 向右滑动撕纸操作区 */
+.tear-action-area {
+    margin-top: 15px;
+    text-align: center;
+}
+
+.tear-slider-track {
+    width: 100%;
+    height: 48px;
+    background: #222;
+    border-radius: 24px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    color: #bbb;
+    font-size: 13px;
+    font-weight: bold;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+}
+
+.tear-slider-thumb {
+    position: absolute;
+    left: 3px;
+    top: 3px;
+    bottom: 3px;
+    width: 72px;
+    background: linear-gradient(135deg, #ff3b30, #e02418);
+    color: #fff;
+    border-radius: 21px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: grab;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    transition: transform 0.08s ease;
+}
+
+.tear-slider-thumb:active {
+    cursor: grabbing;
+}
+
+.btn-tear-fallback {
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 12px;
+    text-decoration: underline;
+    margin-top: 10px;
+    cursor: pointer;
+}
 
 /* 顶部状态栏操作区并排 */
 .action-buttons {
@@ -454,13 +853,12 @@ input:focus, select:focus {
     padding: 4px 8px;
     border-radius: 4px;
     background: #150202;
-    color: #3a1111; /* 熄灭状态的暗红色 */
+    color: #3a1111;
     border: 1px solid #221111;
     transition: all 0.3s ease;
     text-transform: uppercase;
 }
 
-/* 点亮夜间指示灯 */
 .night-indicator.active {
     color: #ff3b30;
     background: #310a0a;
@@ -483,7 +881,6 @@ body.day-theme {
     --pos-blue: #2d68c4;
 }
 
-/* 按钮白天色彩微调，更匹配灰绿格调 */
 body.day-theme .status-bar {
     background: #c4cdc1;
     border-bottom-color: #a7b7a2;
@@ -495,14 +892,12 @@ body.day-theme .btn-theme-toggle {
     color: #1a2217;
 }
 
-/* 拟物化液晶表盘 */
 body.day-theme .meter-box {
-    background: #9cb290; /* 经典灰绿液晶底色 */
+    background: #9cb290;
     border: 6px solid #6c7e65;
     box-shadow: inset 0 4px 10px rgba(0,0,0,0.15), 0 10px 25px rgba(0,0,0,0.1);
 }
 
-/* 液晶屏上的伪反射光和斜切纹理效果 */
 body.day-theme .meter-box::before {
     content: '';
     position: absolute;
@@ -513,10 +908,13 @@ body.day-theme .meter-box::before {
     z-index: 5;
 }
 
-/* 白天液晶下的数码管字体，深灰无背光发光字，利用阴影营造略微下陷的立体感 */
 body.day-theme .main-row {
     color: #1f2a1b;
     text-shadow: 1px 1px 1px rgba(255,255,255,0.4), inset 0 2px 2px rgba(0,0,0,0.3);
+}
+
+body.day-theme .led-ghost {
+    color: rgba(31, 42, 27, 0.08);
 }
 
 body.day-theme .main-row .currency {
@@ -545,7 +943,6 @@ body.day-theme .rate-bar .rate-info {
     color: #4a5c45;
 }
 
-/* 白天模式下的物理空车红牌 */
 body.day-theme .empty-sign {
     border-color: #8fa382;
     box-shadow: 0 4px 8px rgba(0,0,0,0.15);
@@ -557,7 +954,6 @@ body.day-theme .empty-sign.flipped {
     border-color: #9cb290;
 }
 
-/* 白天模式下的物理按钮 */
 body.day-theme .btn-phys {
     box-shadow: 0 6px 0 #566450, 0 10px 20px rgba(0,0,0,0.1);
 }
@@ -572,75 +968,44 @@ body.day-theme .btn-phys:disabled {
     box-shadow: none;
 }
 
-/* 白天模式下的物理指示灯 */
 body.day-theme .night-indicator {
     background: #a2b49c;
-    color: #82957e; /* 熄灭 */
+    color: #82957e;
     border-color: #8fa382;
 }
 
 body.day-theme .night-indicator.active {
     color: #fff;
-    background: #273523; /* 点亮后是反色的深灰色块 */
+    background: #273523;
     border-color: #273523;
     text-shadow: none;
     box-shadow: none;
 }
 
-/* 结账流程的输入表单白天适配 */
-body.day-theme input[type="number"], 
-body.day-theme select {
-    border-color: #a0b29a;
+body.day-theme .receipt-theme {
+    background: #c4cdc1;
 }
 
-body.day-theme input:focus, 
-body.day-theme select:focus {
-    border-color: var(--pos-blue);
-    box-shadow: 0 0 0 4px rgba(45, 104, 196, 0.15);
-}
-
-body.day-theme .bill-details {
-    border-color: #a7b7a2;
-}
-
-body.day-theme .bill-details p {
-    border-bottom-color: #a7b7a2;
-}
-
-body.day-theme .bill-details span {
+body.day-theme .receipt-paper {
+    background: #f4f7f2;
     color: #1a2217;
 }
 
-body.day-theme .btn-text-only {
-    color: #52634e;
+body.day-theme .receipt-printer-slot {
+    background: #8fa382;
+    border-color: #6c7e65;
 }
 
-body.day-theme .btn-pos-tip {
-    color: #1a2217;
-}
-
-body.day-theme .btn-pos-tip.selected {
-    background: var(--pos-blue);
-    color: #fff;
-}
-
-body.day-theme .btn-pos-tip.selected .tip-value {
-    color: rgba(255,255,255,0.9);
-}
-
-body.day-theme .final-amount {
-    color: #1f2a1b;
-    text-shadow: none;
+body.day-theme .tear-slider-track {
+    background: #8fa382;
+    color: #222;
 }
 
 /* ================= 大数溢出字号自适应防御样式 ================= */
-
-/* 大于 6 位数 (如 ¥1000.00) 自动微缩 */
 .main-row.long-value {
     font-size: 11.5vw !important;
 }
 
-/* 大于 8 位数 (如 ¥100000.00 巨款) 大幅度微缩，防挤爆折行 */
 .main-row.super-long-value {
     font-size: 9.2vw !important;
 }
@@ -651,8 +1016,6 @@ body.day-theme .final-amount {
 }
 
 /* ================= 🚨 尊贵金融彩蛋页面专属样式 🚨 ================= */
-
-/* 全屏尊贵奢华蓝黑金融背景 */
 .bankruptcy-theme {
     background: linear-gradient(135deg, #0b1329 0%, #030712 100%) !important;
     align-items: center;
@@ -669,7 +1032,6 @@ body.day-theme .final-amount {
     margin-bottom: 20px;
 }
 
-/* 尊贵金色安全徽章 */
 .safety-badge {
     background: linear-gradient(90deg, #d97706, #f59e0b);
     color: #1e1b4b;
@@ -697,7 +1059,6 @@ body.day-theme .final-amount {
     margin: 0;
 }
 
-/* 巨额欠款金额提示 */
 .pay-fail-amount {
     color: #fbbf24;
     font-size: 28px;
@@ -706,10 +1067,9 @@ body.day-theme .final-amount {
     font-family: 'Courier New', monospace;
 }
 
-/* ================= 贴心借贷卡片 ================= */
 .loan-card {
     background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-    border: 2px solid #3b82f6; /* 科技感十足的安全防线蓝 */
+    border: 2px solid #3b82f6;
     border-radius: 18px;
     padding: 20px;
     width: 100%;
@@ -721,7 +1081,6 @@ body.day-theme .final-amount {
     text-align: left;
 }
 
-/* 卡片头部 */
 .card-header-bar {
     display: flex;
     align-items: center;
@@ -753,7 +1112,6 @@ body.day-theme .final-amount {
     font-weight: bold;
 }
 
-/* 卡片内容 */
 .limit-label {
     font-size: 12px;
     color: #94a3b8;
@@ -763,13 +1121,12 @@ body.day-theme .final-amount {
 .limit-value {
     font-size: 42px;
     font-weight: 900;
-    color: #fbbf24; /* 土豪金发光字 */
+    color: #fbbf24;
     text-shadow: 0 0 15px rgba(251, 191, 36, 0.35);
     margin-bottom: 15px;
     letter-spacing: -0.5px;
 }
 
-/* 网贷细则 */
 .loan-details {
     display: flex;
     gap: 15px;
@@ -797,7 +1154,6 @@ body.day-theme .final-amount {
     color: #f1f5f9;
 }
 
-/* 720% 年化，极致反讽加粗标红 */
 .d-value.highlighted {
     color: #ef4444;
     font-size: 16px;
@@ -813,7 +1169,6 @@ body.day-theme .final-amount {
     font-style: italic;
 }
 
-/* ================= 协议勾选灵魂区 ================= */
 .agreement-box {
     width: 100%;
     max-width: 440px;
@@ -827,7 +1182,7 @@ body.day-theme .final-amount {
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    cursor: not-allowed; /* 强制勾选，别想修改 */
+    cursor: not-allowed;
 }
 
 .checkbox-container input {
@@ -844,7 +1199,6 @@ body.day-theme .final-amount {
     line-height: 1.4;
 }
 
-/* ================= 立即渡劫大按钮 ================= */
 .btn-loan-submit {
     background: linear-gradient(90deg, #f59e0b, #fbbf24) !important;
     color: #1e1b4b !important;
@@ -859,7 +1213,7 @@ body.day-theme .final-amount {
     box-shadow: 0 6px 20px rgba(245, 158, 11, 0.35) !important;
     cursor: pointer;
     z-index: 2;
-    animation: loanHeartbeat 1.6s infinite alternate ease-in-out; /* 呼吸吸引去点 */
+    animation: loanHeartbeat 1.6s infinite alternate ease-in-out;
 }
 
 @keyframes loanHeartbeat {
@@ -872,7 +1226,6 @@ body.day-theme .final-amount {
     opacity: 0.9;
 }
 
-/* 放弃借款，灰色不起眼小字 */
 .btn-give-up {
     color: #475569 !important;
     font-size: 12px !important;
@@ -885,7 +1238,6 @@ body.day-theme .final-amount {
     display: inline-block;
 }
 
-/* 主面板上的支付按钮变异为警报按钮 (金色闪烁，伪装成福利) */
 .btn-phys.btn-bankrupt-alert {
     background: linear-gradient(90deg, #d97706, #fbbf24) !important;
     color: #1e1b4b !important;
@@ -901,104 +1253,4 @@ body.day-theme .final-amount {
         box-shadow: 0 6px 0 rgba(0,0,0,0.4), 0 0 25px rgba(251, 191, 36, 0.95);
         background: #f59e0b !important;
     }
-}
-
-/* ⚡ 网贷扣款成功的已结清印章 ⚡ */
-.paid-stamp-box {
-    text-align: center;
-    margin: 20px auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    animation: stampAppear 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-@keyframes stampAppear {
-    0% { transform: scale(3.5); opacity: 0; }
-    100% { transform: scale(1); opacity: 1; }
-}
-
-.paid-seal {
-    border: 5px solid #10b981;
-    color: #10b981;
-    font-size: 32px;
-    font-weight: 900;
-    padding: 8px 24px;
-    border-radius: 12px;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    transform: rotate(-10deg); /* 经典的倾斜盖章效果 */
-    margin-bottom: 20px;
-    box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
-    text-shadow: 0 0 4px rgba(16, 185, 129, 0.2);
-    display: inline-block;
-    background: transparent;
-}
-
-.paid-note {
-    font-size: 15px;
-    color: #f1f5f9;
-    margin: 5px 0;
-    font-weight: bold;
-}
-
-body.day-theme .paid-note {
-    color: #1a2217;
-}
-
-.paid-hint {
-    font-size: 12px;
-    color: #64748b;
-    max-width: 300px;
-    line-height: 1.5;
-    margin: 0;
-}
-
-/* ================= ↩️ 页面双向并排与返回按钮样式 (Apple HIG Style) ================= */
-
-/* 双向操作并排按钮容器 */
-.step-buttons {
-    display: flex;
-    gap: 15px;
-    width: 100%;
-    margin-top: 30px;
-}
-
-/* 并排按钮尺寸平分与去边距 */
-.step-buttons button,
-.step-buttons .btn-phys {
-    flex: 1;
-    margin-top: 0 !important;
-    width: auto !important;
-}
-
-/* 极简精致的暗黑返回按钮 */
-.btn-back {
-    background: #2C2C2E !important;
-    color: var(--pos-text-sub) !important;
-    border: 1px solid #444 !important;
-    box-shadow: none !important;
-    transition: all 0.2s ease !important;
-}
-
-/* 悬停与激活态 */
-.btn-back:hover,
-.btn-back:active {
-    background: #3A3A3C !important;
-    color: #FFF !important;
-    border-color: #555 !important;
-}
-
-/* 白天主题下的 LCD 浅灰返回按钮适配 */
-body.day-theme .btn-back {
-    background: #c8d3c5 !important;
-    color: #52634e !important;
-    border: 1px solid #a0b29a !important;
-}
-
-body.day-theme .btn-back:hover,
-body.day-theme .btn-back:active {
-    background: #b8c4b5 !important;
-    color: #1a2217 !important;
-    border-color: #8fa382 !important;
 }

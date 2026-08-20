@@ -69,6 +69,118 @@ export function playClackSound() {
     }
 }
 
+// 合成跳表提示音（车费上涨时清脆短促的一声“嘟”）
+export function playMeterTickSound() {
+    try {
+        const context = getAudioContext();
+        if (!context) return;
+
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(1150, context.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(800, context.currentTime + 0.025);
+        gain.gain.setValueAtTime(0.35, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.025);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start();
+        oscillator.stop(context.currentTime + 0.03);
+    } catch (error) {
+        console.warn('生成跳表音效失败:', error);
+    }
+}
+
+// 合成热敏/针式小票打印机步进电机“吱——吱——吱——哒”机械出纸声
+export function playPrintSound() {
+    try {
+        const context = getAudioContext();
+        if (!context) return;
+
+        const duration = 0.45;
+        const bufferSize = Math.floor(context.sampleRate * duration);
+        const buffer = context.createBuffer(1, bufferSize, context.sampleRate);
+        const data = buffer.getChannelData(0);
+
+        for (let i = 0; i < bufferSize; i++) {
+            const t = i / context.sampleRate;
+            const stepPulse = Math.sin(2 * Math.PI * 190 * t) > 0 ? 0.3 : -0.3;
+            const noise = (Math.random() * 2 - 1) * 0.45;
+            const modulation = Math.sin(2 * Math.PI * 20 * t) > 0.1 ? 1 : 0.2;
+            data[i] = (stepPulse + noise) * modulation;
+        }
+
+        const noiseNode = context.createBufferSource();
+        noiseNode.buffer = buffer;
+
+        const filter = context.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(2400, context.currentTime);
+        filter.Q.setValueAtTime(2.8, context.currentTime);
+
+        const gain = context.createGain();
+        gain.gain.setValueAtTime(0.35, context.currentTime);
+        gain.gain.linearRampToValueAtTime(0.35, context.currentTime + 0.38);
+        gain.gain.exponentialRampToValueAtTime(0.01, context.currentTime + duration);
+
+        noiseNode.connect(filter);
+        filter.connect(gain);
+        gain.connect(context.destination);
+
+        noiseNode.start();
+        noiseNode.stop(context.currentTime + duration);
+    } catch (error) {
+        console.warn('生成小票打印音效失败:', error);
+    }
+}
+
+// 合成“嗤啦”撕纸物理音效
+export function playTearSound() {
+    try {
+        const context = getAudioContext();
+        if (!context) return;
+
+        const duration = 0.22;
+        const bufferSize = Math.floor(context.sampleRate * duration);
+        const buffer = context.createBuffer(1, bufferSize, context.sampleRate);
+        const data = buffer.getChannelData(0);
+
+        for (let i = 0; i < bufferSize; i++) {
+            const progress = i / bufferSize;
+            const friction = (Math.random() * 2 - 1) * (1 - progress * 0.6);
+            data[i] = friction;
+        }
+
+        const noise = context.createBufferSource();
+        noise.buffer = buffer;
+
+        const filter = context.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.setValueAtTime(1200, context.currentTime);
+        filter.frequency.linearRampToValueAtTime(800, context.currentTime + duration);
+
+        const gain = context.createGain();
+        gain.gain.setValueAtTime(0.4, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, context.currentTime + duration);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(context.destination);
+
+        noise.start();
+        noise.stop(context.currentTime + duration);
+    } catch (error) {
+        console.warn('生成撕纸音效失败:', error);
+    }
+}
+
+// 确保在 iOS Safari 切回前台或首次交互时恢复音频上下文
+export function ensureAudioActive() {
+    if (audioContext && (audioContext.state === 'suspended' || audioContext.state === 'interrupted')) {
+        audioContext.resume().catch(() => {});
+    }
+}
+
 // 浏览器不支持振动时静默跳过，不影响主流程。
 export function triggerHaptic(duration = 15) {
     if (navigator.vibrate) {

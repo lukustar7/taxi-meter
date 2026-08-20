@@ -9,14 +9,19 @@ import {
     calculateBill,
     calculateElapsedSeconds,
     calculateFare,
+    calculateSegmentedFare,
     calculateSuggestedTip,
     clampNumber,
     isNightTime,
     normalizeRate
 } from './domain.js';
 import {
+    ensureAudioActive,
     playClackSound,
     playClickSound,
+    playMeterTickSound,
+    playPrintSound,
+    playTearSound,
     releaseWakeLock,
     requestWakeLock,
     triggerHaptic
@@ -24,11 +29,9 @@ import {
 
 // 收款码只需要小图；限制 512KB 可以避开 localStorage 配额爆炸和手机内存浪费。
 const MAX_QR_IMAGE_BYTES = 512 * 1024;
-
-// 上传前先限制源文件体积，降低超大压缩图片在手机上解码时耗尽内存的风险。
 const MAX_QR_SOURCE_BYTES = 5 * 1024 * 1024;
 
-// LocalStorage 专用键名集中管理，避免字符串散落导致迁移和清理遗漏。
+// LocalStorage 专用键名集中管理
 const STORAGE_CONFIG_KEY = 'retro_taxi_meter_config_v1';
 const STORAGE_QR_KEY = 'retro_taxi_meter_qr_v1';
 
@@ -43,70 +46,104 @@ const state = {
     isRunning: false,     // 行程是否运行中
     startTime: 0,         // 开始时间戳
     elapsedTime: 0,       // 累计时间 (秒)
-    distance: 0,          // 累计里程 (km)
+    distance: 0,          // 总体有效里程 (km)
+    dayKm: 0,             // 白天段累计有效里程 (km)
+    nightKm: 0,           // 夜间段累计有效里程 (km)
+    startIsNight: false,  // 起步时刻是否为夜间
     currentFare: 0,       // 当前计价费 (元)
-    fareDistance: 0,      // 已进入阶梯计价公式的有效里程 (km)
+    previousFare: 0,      // 上一次计价车费，用于监控跳表
     tollFee: 0,           // 路桥费
     otherFee: 0,          // 停车费/其他
     tipFee: 0,            // 小费
-    lastLocationSample: null, // 上一个通过基础质量校验并被接纳为锚点的 GPS 样本
+    selectedTipPercent: 0.20, // 选中的小费比例
+    lastLocationSample: null, // 上一个有效 GPS 样本
     watchId: null,        // Geolocation 监听器 ID
     timerId: null,        // 计时器 ID
-    isNight: false,       // 当前是否处于夜间加费阶段
-    nextAction: 'payment' // 行程结束后的主按钮动作：常规结算或封顶彩蛋
+    isNight: false,       // 当前是否处于夜间时段
+    nextAction: 'receipt', // 'receipt' 或 'bankruptcy'
+    pressAnimId: null,    // 长按动画帧 ID
+    pressStartTime: 0,    // 长按开始时间戳
+    cropState: {
+        image: null,
+        scale: 1,
+        sourceWidth: 0,
+        sourceHeight: 0
+    }
 };
 
 // ================= 初始化与核心设置 =================
 
 function init() {
-    bindEvents();             // 所有页面事件统一在入口绑定，HTML 不再执行内联脚本
+    bindEvents();             // 页面事件统一绑定
     document.title = `TAXI METER v${APP_VERSION}`;
     registerServiceWorker(); // 注册 PWA 离线脚本
     loadSettings();          // 读取缓存的费率和收款码
-    initTheme();             // 初始化昼夜主题 (优先尊重用户选择，无选择时按时间自适应)
+    initTheme();             // 初始化昼夜主题
     updateNightStatus();     // 检测并更新夜间状态
     updateDisplay();         // 刷新数字显示
     console.info(`[App] Retro Taxi Meter v${APP_VERSION} 初始化完成`);
 }
 
-/**
- * 集中绑定所有用户事件，避免函数暴露到 window，也避免运行时替换 onclick。
- * 页面结构若修改了控件 ID，会在初始化时立即暴露错误，而不是点击后才静默失败。
- */
 function bindEvents() {
+    // 点击类事件
     const clickBindings = [
         ['theme-toggle-btn', toggleTheme],
         ['settings-open-btn', toggleSettings],
         ['settings-close-btn', toggleSettings],
         ['start-trip-btn', startTrip],
-        ['stop-trip-btn', stopTrip],
         ['next-step-btn', handlePrimaryAction],
         ['settings-save-btn', saveSettings],
-        ['back-to-meter-btn', goBackToMeter],
-        ['go-to-tip-btn', goToTip],
         ['show-custom-tip-btn', showCustomTip],
-        ['back-to-extra-btn', goBackToExtra],
-        ['go-to-pay-btn', goToPay],
-        ['btn-pay-back', goBackToTip],
-        ['loan-submit-btn', submitLoanPayment]
+        ['loan-submit-btn', submitLoanPayment],
+        ['btn-tear-fallback', triggerTearReceipt],
+        ['crop-cancel-btn', closeCropModal],
+        ['crop-confirm-btn', confirmCropImage]
     ];
 
     clickBindings.forEach(([id, listener]) => {
-        document.getElementById(id).addEventListener('click', listener);
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', listener);
     });
 
+    // 长按结束按钮防误触绑定
+    const stopBtn = document.getElementById('stop-trip-btn');
+    if (stopBtn) {
+        stopBtn.addEventListener('pointerdown', handleStopPointerDown);
+        stopBtn.addEventListener('pointerup', handleStopPointerUp);
+        stopBtn.addEventListener('pointerleave', handleStopPointerUp);
+        stopBtn.addEventListener('pointercancel', handleStopPointerUp);
+        stopBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+
+    // 收款码文件选择与裁剪缩放
     document.getElementById('qr-upload').addEventListener('change', (event) => {
-        handleQRUpload(event.currentTarget);
+        handleQRFileSelect(event.currentTarget);
     });
-    document.getElementById('custom-tip').addEventListener('input', clearTipSelection);
+    document.getElementById('crop-zoom').addEventListener('input', (event) => {
+        state.cropState.scale = Number.parseFloat(event.target.value) || 1;
+        drawCropCanvas();
+    });
 
+    // 小票内附加费和自定义小费实时同步
+    document.getElementById('toll-fee').addEventListener('input', handleFeeInputChange);
+    document.getElementById('other-fee').addEventListener('input', handleFeeInputChange);
+    document.getElementById('custom-tip').addEventListener('input', handleCustomTipInput);
+
+    // 小费比例按钮组
     document.querySelectorAll('[data-tip-percent]').forEach((button) => {
         button.addEventListener('click', () => selectTip(Number(button.dataset.tipPercent)));
     });
 
+    // 重置重开下一单按钮
     document.querySelectorAll('[data-reset-app]').forEach((button) => {
         button.addEventListener('click', resetApp);
     });
+
+    // 撕纸滑块手势绑定
+    bindTearSlider();
+
+    // 任何用户触摸时唤醒 iOS Web Audio
+    window.addEventListener('pointerdown', ensureAudioActive, { once: false, passive: true });
 }
 
 // 注册 PWA Service Worker 离线缓存
@@ -124,7 +161,7 @@ function registerServiceWorker() {
     }
 }
 
-// 只保存费率，不把二维码塞进配置对象，避免同一张收款码在 localStorage 里占两份空间。
+// 保存费率配置
 function saveRateConfig(rate) {
     try {
         localStorage.setItem(STORAGE_CONFIG_KEY, JSON.stringify({ rate }));
@@ -136,7 +173,6 @@ function saveRateConfig(rate) {
     }
 }
 
-// 初始化阶段静默写回精简配置，用来清掉旧版本 config 中混入的 qrImage 大字段。
 function persistNormalizedRateSilently() {
     try {
         localStorage.setItem(STORAGE_CONFIG_KEY, JSON.stringify({ rate: config.rate }));
@@ -145,7 +181,6 @@ function persistNormalizedRateSilently() {
     }
 }
 
-// 安全读取本地存储；部分隐私模式或存储被禁用时会抛错，不能让页面初始化中断。
 function readStorageItem(key) {
     try {
         return localStorage.getItem(key);
@@ -155,7 +190,7 @@ function readStorageItem(key) {
     }
 }
 
-// 渲染收款码预览和支付页二维码，所有入口都走这里，避免重复 DOM 逻辑。
+// 渲染收款码
 function renderQRImage(dataUrl) {
     config.qrImage = dataUrl;
 
@@ -167,56 +202,27 @@ function renderQRImage(dataUrl) {
     img.alt = '收款码预览';
     preview.appendChild(img);
 
-    document.getElementById('pay-qr-img').src = dataUrl;
-    document.getElementById('pay-qr-img').style.display = 'block';
-    document.getElementById('default-qr-text').style.display = 'none';
+    const payImg = document.getElementById('pay-qr-img');
+    if (payImg) {
+        payImg.src = dataUrl;
+        payImg.style.display = 'block';
+    }
+    const defaultQrText = document.getElementById('default-qr-text');
+    if (defaultQrText) defaultQrText.style.display = 'none';
 }
 
-// 估算 Data URL 还原后的二进制体积，用于拦截过大的收款码图片。
 function getDataUrlByteSize(dataUrl) {
     const base64 = dataUrl.split(',')[1] || '';
     return Math.ceil(base64.length * 3 / 4);
 }
 
-// 只接受常见位图格式，拒绝 SVG 等可携带复杂脚本语义的图片格式。
 function isAllowedQRImageType(type) {
     return ['image/png', 'image/jpeg', 'image/webp'].includes(type);
 }
 
-// 旧缓存恢复也必须检查图片格式和大小，不能让历史大图绕过新上传限制。
 function isAllowedQRDataUrl(dataUrl) {
     const match = typeof dataUrl === 'string' && dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,/);
     return Boolean(match) && getDataUrlByteSize(dataUrl) <= MAX_QR_IMAGE_BYTES;
-}
-
-// 将用户上传的图片压缩成二维码足够清晰的小图，降低 localStorage 配额爆炸风险。
-function compressQRImage(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error('图片读取失败'));
-        reader.onload = () => {
-            const image = new Image();
-            image.onerror = () => reject(new Error('图片解析失败'));
-            image.onload = () => {
-                const maxSide = 512;
-                const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-                const width = Math.max(1, Math.round(image.width * scale));
-                const height = Math.max(1, Math.round(image.height * scale));
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-
-                const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(0, 0, width, height);
-                ctx.drawImage(image, 0, 0, width, height);
-
-                resolve(canvas.toDataURL('image/jpeg', 0.9));
-            };
-            image.src = reader.result;
-        };
-        reader.readAsDataURL(file);
-    });
 }
 
 // 兼容性平滑数据搬运
@@ -239,13 +245,12 @@ function migrateLegacyStorage() {
 
 // 恢复缓存的运价和收款码
 function loadSettings() {
-    migrateLegacyStorage(); // 优先执行平滑数据搬运
+    migrateLegacyStorage();
 
     const savedConfig = readStorageItem(STORAGE_CONFIG_KEY);
     if (savedConfig) {
         try {
             const parsed = JSON.parse(savedConfig);
-            // 同时兼容 { rate: ... } 和更老的扁平对象，读出来后统一做边界校验。
             config.rate = normalizeRate(parsed && (parsed.rate || parsed));
             persistNormalizedRateSilently();
         } catch (e) {
@@ -255,14 +260,12 @@ function loadSettings() {
         }
     }
     
-    // 扁平回填设置表单
     document.getElementById('base-fare').value = config.rate.base;
     document.getElementById('base-dist').value = config.rate.baseKm;
     document.getElementById('per-km').value = config.rate.perKm;
     document.getElementById('empty-dist').value = config.rate.emptyKm;
     document.getElementById('empty-fee').value = config.rate.emptyRate;
 
-    // 二维码恢复
     const savedQR = readStorageItem(STORAGE_QR_KEY);
     if (isAllowedQRDataUrl(savedQR)) {
         renderQRImage(savedQR);
@@ -277,13 +280,11 @@ function loadSettings() {
     updateRateInfoDisplay(config.rate);
 }
 
-// 刷新 LED 屏下的城市费率提示文字
 function updateRateInfoDisplay(rate) {
     const nightText = state.isNight ? ` [夜间×${NIGHT_MULTIPLIER}]` : '';
     document.getElementById('rate-info').textContent = `费率 (${rate.base}元/${rate.baseKm}km)${nightText}`;
 }
 
-// 打开/关闭设置浮窗 (带物理音效反馈)
 function toggleSettings() {
     playClickSound();
     triggerHaptic(15);
@@ -291,7 +292,6 @@ function toggleSettings() {
     panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
 }
 
-// 保存自定义设置 (带物理音效反馈)
 function saveSettings() {
     playClickSound();
     triggerHaptic(20);
@@ -304,7 +304,6 @@ function saveSettings() {
         emptyRate: document.getElementById('empty-fee').value
     });
 
-    // 先确认持久化成功再替换运行时配置，避免存储失败后界面与内存状态分裂。
     if (!saveRateConfig(nextRate)) return;
     config.rate = nextRate;
     document.getElementById('base-fare').value = config.rate.base;
@@ -313,7 +312,7 @@ function saveSettings() {
     document.getElementById('empty-dist').value = config.rate.emptyKm;
     document.getElementById('empty-fee').value = config.rate.emptyRate;
 
-    updateNightStatus(); // 重新核对夜间指示并刷新运价展示
+    updateNightStatus();
     if (state.isRunning) {
         recalcFare();
         updateDisplay();
@@ -322,8 +321,9 @@ function saveSettings() {
     alert('费率设置已保存');
 }
 
-// 二维码图片上传本地缓存化
-async function handleQRUpload(input) {
+// ================= ✂️ 收款码正方形裁剪器实现 =================
+
+function handleQRFileSelect(input) {
     const file = input.files && input.files[0];
     if (!file) return;
 
@@ -339,43 +339,117 @@ async function handleQRUpload(input) {
         return;
     }
 
-    try {
-        const compressedDataUrl = await compressQRImage(file);
-        if (getDataUrlByteSize(compressedDataUrl) > MAX_QR_IMAGE_BYTES) {
-            input.value = '';
-            alert('收款码图片过大，请换一张更清晰且更小的二维码截图');
-            return;
-        }
+    const reader = new FileReader();
+    reader.onerror = () => alert('读取图片失败');
+    reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => alert('解析图片失败');
+        img.onload = () => {
+            state.cropState.image = img;
+            state.cropState.sourceWidth = img.width;
+            state.cropState.sourceHeight = img.height;
+            state.cropState.scale = 1;
+            document.getElementById('crop-zoom').value = '1';
+            openCropModal();
+        };
+        img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+}
 
-        localStorage.setItem(STORAGE_QR_KEY, compressedDataUrl);
-        renderQRImage(compressedDataUrl);
+function openCropModal() {
+    const modal = document.getElementById('qr-crop-modal');
+    modal.style.display = 'flex';
+    drawCropCanvas();
+}
+
+function closeCropModal() {
+    const modal = document.getElementById('qr-crop-modal');
+    modal.style.display = 'none';
+    document.getElementById('qr-upload').value = '';
+}
+
+function drawCropCanvas() {
+    const canvas = document.getElementById('crop-canvas');
+    const img = state.cropState.image;
+    if (!canvas || !img) return;
+
+    const ctx = canvas.getContext('2d');
+    const size = 240;
+    canvas.width = size;
+    canvas.height = size;
+
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, size, size);
+
+    const minSide = Math.min(img.width, img.height);
+    const scale = state.cropState.scale;
+    const cropSide = minSide / scale;
+    const sx = Math.max(0, (img.width - cropSide) / 2);
+    const sy = Math.max(0, (img.height - cropSide) / 2);
+
+    ctx.drawImage(img, sx, sy, cropSide, cropSide, 0, 0, size, size);
+
+    // 绘制正方形辅助边框
+    ctx.strokeStyle = '#0A84FF';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(2, 2, size - 4, size - 4);
+}
+
+function confirmCropImage() {
+    const img = state.cropState.image;
+    if (!img) return;
+
+    const exportCanvas = document.createElement('canvas');
+    const exportSize = 512;
+    exportCanvas.width = exportSize;
+    exportCanvas.height = exportSize;
+    const ctx = exportCanvas.getContext('2d');
+
+    const minSide = Math.min(img.width, img.height);
+    const scale = state.cropState.scale;
+    const cropSide = minSide / scale;
+    const sx = Math.max(0, (img.width - cropSide) / 2);
+    const sy = Math.max(0, (img.height - cropSide) / 2);
+
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, exportSize, exportSize);
+    ctx.drawImage(img, sx, sy, cropSide, cropSide, 0, 0, exportSize, exportSize);
+
+    const dataUrl = exportCanvas.toDataURL('image/jpeg', 0.92);
+    try {
+        localStorage.setItem(STORAGE_QR_KEY, dataUrl);
+        renderQRImage(dataUrl);
+        closeCropModal();
+        alert('收款码裁剪完成并已保存！');
     } catch (e) {
-        console.warn('收款码保存失败:', e);
-        input.value = '';
-        alert('收款码保存失败：浏览器本地存储空间不足或图片无法解析');
+        console.warn('保存收款码失败:', e);
+        alert('保存收款码失败：浏览器本地存储空间不足');
     }
 }
 
-// 当页面切回前台时，若计价器仍在跑，则重新请求常亮锁
+// 页面切回前台时，若计价器仍在跑，则重新请求常亮锁并激活音频
 document.addEventListener('visibilitychange', async () => {
-    if (document.visibilityState === 'visible' && state.isRunning) {
-        await requestWakeLock();
+    if (document.visibilityState === 'visible') {
+        ensureAudioActive();
+        if (state.isRunning) {
+            await requestWakeLock();
+        }
     }
 });
 
 // ================= 🌙 昼夜模式与时间检测 =================
 
-// 刷新夜间状态与 LED 指示灯；返回值表示夜间状态是否发生变化。
 function updateNightStatus() {
     const isNight = isNightTime();
     const indicator = document.getElementById('night-indicator');
     const changed = state.isNight !== isNight;
     
     if (isNight) {
-        indicator.classList.add('active'); // 亮灯
+        indicator.classList.add('active');
         state.isNight = true;
     } else {
-        indicator.classList.remove('active'); // 灭灯
+        indicator.classList.remove('active');
         state.isNight = false;
     }
     
@@ -385,13 +459,11 @@ function updateNightStatus() {
 
 // ================= ☀️/🌙 昼夜视觉主题切换 =================
 
-// 初始化昼夜主题 (始终根据当前实际时间自适应，不保留上次的缓存选择)
 function initTheme() {
     const isNight = isNightTime();
     setTheme(isNight ? 'night' : 'day');
 }
 
-// 执行主题切换
 function setTheme(theme) {
     const body = document.body;
     const btn = document.getElementById('theme-toggle-btn');
@@ -404,7 +476,6 @@ function setTheme(theme) {
     }
 }
 
-// 点击顶部切换按钮
 function toggleTheme() {
     playClickSound();
     triggerHaptic(15);
@@ -414,34 +485,34 @@ function toggleTheme() {
 
 // ================= 🚖 核心计费与 GPS 定位 =================
 
-// 开始行程
 function startTrip() {
     if (state.isRunning) return;
     if (!navigator.geolocation) { alert('您的浏览器不支持 GPS 定位'); return; }
 
-    // 播放清脆的机械声和较强物理震动
+    ensureAudioActive();
     playClackSound();
     triggerHaptic(30);
 
     state.isRunning = true;
     state.startTime = Date.now();
     state.distance = 0;
-    state.fareDistance = 0;
+    state.dayKm = 0;
+    state.nightKm = 0;
     state.elapsedTime = 0;
-    state.nextAction = 'payment';
+    state.nextAction = 'receipt';
     
-    // 重新核对夜间费率
     updateNightStatus();
-    state.currentFare = calculateFare(config.rate, 0, state.isNight);
+    state.startIsNight = state.isNight;
+    state.currentFare = calculateFare(config.rate, 0, state.startIsNight);
+    state.previousFare = state.currentFare;
     state.lastLocationSample = null;
 
     document.getElementById('empty-sign').classList.add('flipped'); 
     document.getElementById('start-trip-btn').disabled = true;
     document.getElementById('stop-trip-btn').disabled = false;
-    document.getElementById('gps-status').textContent = 'GPS: Connecting...';
-    document.getElementById('gps-status').style.color = 'yellow';
+    document.getElementById('gps-status').textContent = '🛰️ 正在搜星...';
+    document.getElementById('gps-status').style.color = '#ffcc00';
 
-    // 定时器只负责触发刷新，累计时间始终由真实时间戳计算，后台降频也不会少算。
     state.timerId = setInterval(() => {
         state.elapsedTime = calculateElapsedSeconds(state.startTime);
         if (updateNightStatus()) {
@@ -450,7 +521,6 @@ function startTrip() {
         updateDisplay();
     }, 1000);
 
-    // 启动 GPS 定位监听
     const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
     try {
         state.watchId = navigator.geolocation.watchPosition(onLocationUpdate, onLocationError, options);
@@ -459,11 +529,9 @@ function startTrip() {
         return;
     }
 
-    // 定位监听注册成功后再申请常亮，注册失败时不会留下异步资源。
     requestWakeLock();
 }
 
-// 极少数浏览器会在注册定位监听时同步抛错，此时必须完整回滚计时器和界面状态。
 function abortTripStart(error) {
     if (state.timerId !== null) {
         clearInterval(state.timerId);
@@ -476,18 +544,58 @@ function abortTripStart(error) {
     document.getElementById('empty-sign').classList.remove('flipped');
     document.getElementById('start-trip-btn').disabled = false;
     document.getElementById('stop-trip-btn').disabled = true;
-    document.getElementById('gps-status').textContent = 'GPS: Unavailable';
-    document.getElementById('gps-status').style.color = 'red';
+    document.getElementById('gps-status').textContent = '🛑 GPS 不可用';
+    document.getElementById('gps-status').style.color = '#ff3b30';
     console.warn('GPS 监听启动失败:', error);
     alert('GPS 定位启动失败，请检查浏览器定位权限');
 }
 
-// 结束行程 (包含破产清算拦截变异)
-function stopTrip() {
+// ================= 🛡️ 长按 1.5 秒结束行程逻辑 (防车载颠簸误触) =================
+
+function handleStopPointerDown(e) {
     if (!state.isRunning) return;
 
-    playClickSound();
-    triggerHaptic(20);
+    state.pressStartTime = Date.now();
+    const progressEl = document.getElementById('stop-btn-progress');
+    const stopBtn = document.getElementById('stop-trip-btn');
+    stopBtn.classList.add('pressing');
+
+    const updateProgress = () => {
+        if (!state.pressStartTime) return;
+        const elapsed = Date.now() - state.pressStartTime;
+        const progress = Math.min(100, (elapsed / 1500) * 100);
+        progressEl.style.width = `${progress}%`;
+
+        if (elapsed >= 1500) {
+            // 长按达到 1.5 秒，正式结束行程
+            state.pressStartTime = 0;
+            progressEl.style.width = '0%';
+            stopBtn.classList.remove('pressing');
+            stopTrip();
+            return;
+        }
+
+        state.pressAnimId = requestAnimationFrame(updateProgress);
+    };
+
+    state.pressAnimId = requestAnimationFrame(updateProgress);
+}
+
+function handleStopPointerUp() {
+    if (state.pressAnimId) {
+        cancelAnimationFrame(state.pressAnimId);
+        state.pressAnimId = null;
+    }
+    state.pressStartTime = 0;
+    const progressEl = document.getElementById('stop-btn-progress');
+    if (progressEl) progressEl.style.width = '0%';
+    const stopBtn = document.getElementById('stop-trip-btn');
+    if (stopBtn) stopBtn.classList.remove('pressing');
+}
+
+// 结束行程并打印小票
+function stopTrip() {
+    if (!state.isRunning) return;
 
     state.elapsedTime = calculateElapsedSeconds(state.startTime);
     state.isRunning = false;
@@ -500,42 +608,34 @@ function stopTrip() {
         state.watchId = null;
     }
 
-    // 释放屏幕常亮锁
     releaseWakeLock();
-
     document.getElementById('stop-trip-btn').disabled = true;
-    document.getElementById('gps-status').textContent = 'GPS: Stopped';
-    document.getElementById('gps-status').style.color = '#666';
+    document.getElementById('gps-status').textContent = '🛑 GPS 已停运';
+    document.getElementById('gps-status').style.color = '#888';
 
-    const payBtn = document.getElementById('next-step-btn');
-    
-    // 【网贷渡劫彩蛋触发】
+    // 检查网贷渡劫彩蛋
     if (state.currentFare >= MAX_FARE) {
-        payBtn.textContent = '⚡ 余额不足，一键渡劫';
-        payBtn.classList.add('btn-bankrupt-alert'); // 添加财富闪动效果
         state.nextAction = 'bankruptcy';
-    } else {
-        // 恢复正常支付通道
-        payBtn.textContent = '支付';
-        payBtn.classList.remove('btn-bankrupt-alert');
-        state.nextAction = 'payment';
+        triggerBankruptcy();
+        return;
     }
-    
-    payBtn.style.display = 'inline-block';
-    updateDisplay();
+
+    // 播放打印机出纸机械音并展示小票
+    playPrintSound();
+    triggerHaptic(25);
+    state.nextAction = 'receipt';
+    showReceiptScreen();
 }
 
-// 结束后的主按钮保持一个固定监听器，只根据明确状态选择下一页。
 function handlePrimaryAction() {
     if (state.nextAction === 'bankruptcy') {
         triggerBankruptcy();
         return;
     }
-
-    nextStep();
+    showReceiptScreen();
 }
 
-// GPS 位置更新处理：核心模块负责判定，页面层只更新状态、里程和提示。
+// GPS 位置更新处理：分段累加里程并监控跳表
 function onLocationUpdate(position) {
     if (!state.isRunning) return;
 
@@ -551,7 +651,7 @@ function onLocationUpdate(position) {
     const accuracyText = Number.isFinite(sample.accuracy) ? Math.round(sample.accuracy) : '?';
 
     if (decision.status === GPS_SAMPLE_STATUS.WEAK) {
-        document.getElementById('gps-status').textContent = `GPS: Weak (±${accuracyText}m)`;
+        document.getElementById('gps-status').textContent = `⚠️ 信号较弱 (±${accuracyText}m)`;
         document.getElementById('gps-status').style.color = 'orange';
         return;
     }
@@ -561,65 +661,78 @@ function onLocationUpdate(position) {
     }
 
     if (decision.status === GPS_SAMPLE_STATUS.STALE) {
-        document.getElementById('gps-status').textContent = 'GPS: Stale sample';
+        document.getElementById('gps-status').textContent = '⚠️ 采样延迟';
         document.getElementById('gps-status').style.color = 'orange';
         return;
     }
 
     if (decision.status === GPS_SAMPLE_STATUS.JUMP) {
-        document.getElementById('gps-status').textContent = 'GPS: Jump filtered';
+        document.getElementById('gps-status').textContent = '⚠️ 穿桥跳点已过滤';
         document.getElementById('gps-status').style.color = 'orange';
         return;
     }
 
-    document.getElementById('gps-status').textContent = `GPS: OK (±${accuracyText}m)`;
+    document.getElementById('gps-status').textContent = `🛰️ 卫星已连接 (±${accuracyText}m)`;
     document.getElementById('gps-status').style.color = '#34c759';
 
-    // 首个有效点和静止点只更新锚点，不产生里程。
     if (decision.status !== GPS_SAMPLE_STATUS.MOVING) {
         return;
     }
 
-    state.distance = Math.min(state.distance + decision.distanceKm, MAX_NUMERIC_INPUT);
-    state.fareDistance = state.distance;
-
-    if (updateNightStatus()) {
-        console.log('[Fare] 夜间状态已切换，按当前时段重新核算车资');
+    // 严密分段累加：按当前是否夜间将位移归入对应区间，彻底杜绝历史追溯
+    const isNowNight = isNightTime();
+    if (isNowNight) {
+        state.nightKm += decision.distanceKm;
+    } else {
+        state.dayKm += decision.distanceKm;
     }
-    recalcFare(); // 重新核算阶梯费用
-    updateDisplay(); // 刷新 LED 屏幕
+    state.distance = Math.min(state.dayKm + state.nightKm, MAX_NUMERIC_INPUT);
+
+    updateNightStatus();
+    recalcFare(); // 重新核算分段车费
+    updateDisplay(); // 刷新 LED 数码管
 }
 
-// 定位失败错误提示
 function onLocationError(err) {
     if (!state.isRunning) return;
-
-    document.getElementById('gps-status').textContent = `GPS Error: ${err.message}`;
+    document.getElementById('gps-status').textContent = `GPS 异常: ${err.message}`;
     document.getElementById('gps-status').style.color = 'red';
 }
 
-// 页面状态只保存最终里程费，完整阶梯规则由可独立测试的核心模块负责。
+// 核心分段计费核算
 function recalcFare() {
     config.rate = normalizeRate(config.rate);
-    state.currentFare = calculateFare(config.rate, state.fareDistance, state.isNight);
+    const newFare = calculateSegmentedFare({
+        rawRate: config.rate,
+        dayDistance: state.dayKm,
+        nightDistance: state.nightKm,
+        startIsNight: state.startIsNight
+    });
+
+    // ⏰【跳表压迫感】只要金额上涨，精准触发一声机械嘟与微震
+    if (state.isRunning && newFare > state.previousFare) {
+        playMeterTickSound();
+        triggerHaptic(12);
+        state.previousFare = newFare;
+    }
+
+    state.currentFare = newFare;
 }
 
-// 更新 LED 屏幕渲染数值 (含有大数自适应字号缩放)
+// 更新 LED 屏幕渲染数值
 function updateDisplay() {
     const priceStr = state.currentFare.toFixed(2);
     const priceDisplayNode = document.getElementById('display-price');
     priceDisplayNode.textContent = priceStr;
     
-    // 【大数溢出防御第二关】根据车资字符长度，动态缩放 LED 显示屏字号，防止挤爆撑大
-    const mainRow = priceDisplayNode.parentElement;
+    const mainRow = priceDisplayNode.parentElement.parentElement;
     let targetClass = '';
-    if (priceStr.length > 8) {       // 千位数以上，如 ¥100000.00
+    if (priceStr.length > 8) {
         targetClass = 'super-long-value';
-    } else if (priceStr.length > 6) { // 百位数以上，如 ¥1000.00
+    } else if (priceStr.length > 6) {
         targetClass = 'long-value';
     }
 
-    // 性能优化：仅在类名确实需要变更时才操作 DOM classList，防止高频触发 Style Recalculation
     const hasLong = mainRow.classList.contains('long-value');
     const hasSuper = mainRow.classList.contains('super-long-value');
 
@@ -640,71 +753,53 @@ function updateDisplay() {
     }
     
     document.getElementById('display-km').textContent = state.distance.toFixed(1);
-    
     const mins = Math.floor(state.elapsedTime / 60);
     const secs = state.elapsedTime % 60;
     document.getElementById('display-time').textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-// ================= 💳 页面流转与结账交互 =================
+// ================= 🧾 一体化复古热敏小票结算页面 =================
 
-// ================= ↩️ 返回上一页流转处理 =================
-
-// 从附加费页面返回计价器主屏
-function goBackToMeter() {
-    playClickSound();
-    triggerHaptic(15);
-    
-    document.getElementById('extra-fee-screen').style.display = 'none';
-    document.getElementById('meter-screen').style.display = 'flex';
-    document.getElementById('meter-screen').classList.add('active-screen');
-}
-
-// 从小费选择页面返回附加费页面 (数据自然保留在输入框)
-function goBackToExtra() {
-    playClickSound();
-    triggerHaptic(15);
-    
-    document.getElementById('tip-screen').style.display = 'none';
-    document.getElementById('extra-fee-screen').style.display = 'flex';
-}
-
-// 从支付详情页面返回小费选择页面 (仅限未代扣的正常结算状态)
-function goBackToTip() {
-    playClickSound();
-    triggerHaptic(15);
-    
-    document.getElementById('pay-screen').style.display = 'none';
-    document.getElementById('tip-screen').style.display = 'flex';
-}
-
-// 进入附加费页面
-function nextStep() {
-    playClickSound();
-    triggerHaptic(15);
-    document.getElementById('meter-screen').classList.remove('active-screen');
+function showReceiptScreen() {
     document.getElementById('meter-screen').style.display = 'none';
-    document.getElementById('extra-fee-screen').style.display = 'flex';
-}
+    document.getElementById('meter-screen').classList.remove('active-screen');
+    document.getElementById('bankruptcy-screen').style.display = 'none';
+    
+    const receiptScreen = document.getElementById('receipt-screen');
+    receiptScreen.style.display = 'flex';
 
-// 进入小费选择页 (带小费动态预算)
-function goToTip() {
-    playClickSound();
-    triggerHaptic(15);
+    // 格式化发票元数据
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    const mins = Math.floor(state.elapsedTime / 60);
+    const secs = state.elapsedTime % 60;
+
+    document.getElementById('rec-date').textContent = dateStr;
+    document.getElementById('rec-time').textContent = `${mins}分${secs}秒`;
+    document.getElementById('rec-dist').textContent = `${state.distance.toFixed(1)} km`;
+    document.getElementById('rec-rate').textContent = `${config.rate.base}元/${config.rate.baseKm}km`;
+    document.getElementById('rec-meter-fare').textContent = state.currentFare.toFixed(2);
+
+    // 默认选中 20% 鸡腿小费
     state.tollFee = clampNumber(document.getElementById('toll-fee').value, 0);
     state.otherFee = clampNumber(document.getElementById('other-fee').value, 0);
-    document.getElementById('toll-fee').value = state.tollFee || '';
-    document.getElementById('other-fee').value = state.otherFee || '';
-    
-    document.getElementById('extra-fee-screen').style.display = 'none';
-    document.getElementById('tip-screen').style.display = 'flex';
-    
-    updateTipValues();
-    selectTip(0.20); // 默认选中 20% 鸡腿小费 😈
+    updateReceiptTipGrid();
+    selectTip(0.20);
+    updateReceiptTotal();
 }
 
-// 刷新 POS 小费网格按钮的值
-function updateTipValues() {
+function handleFeeInputChange() {
+    state.tollFee = clampNumber(document.getElementById('toll-fee').value, 0);
+    state.otherFee = clampNumber(document.getElementById('other-fee').value, 0);
+    updateReceiptTipGrid();
+    if (state.selectedTipPercent !== null) {
+        selectTip(state.selectedTipPercent);
+    } else {
+        handleCustomTipInput();
+    }
+}
+
+function updateReceiptTipGrid() {
     [0.15, 0.20, 0.25].forEach((percent) => {
         const tip = calculateSuggestedTip(
             state.currentFare,
@@ -713,20 +808,18 @@ function updateTipValues() {
             percent
         );
         const valueNode = document.querySelector(`[data-tip-value="${percent}"]`);
-        valueNode.textContent = `¥${tip.toFixed(1)}`;
+        if (valueNode) valueNode.textContent = `¥${tip.toFixed(1)}`;
     });
 }
 
-// 选中某个小费比例
 function selectTip(percent) {
     playClickSound();
     triggerHaptic(15);
+    state.selectedTipPercent = percent;
 
-    // 隐藏并清空自定义输入框
     document.getElementById('custom-tip-container').style.display = 'none';
     document.getElementById('custom-tip').value = '';
-    
-    // 更新选中状态 UI
+
     document.querySelectorAll('.btn-pos-tip').forEach((button) => {
         button.classList.toggle('selected', Number(button.dataset.tipPercent) === percent);
     });
@@ -737,112 +830,138 @@ function selectTip(percent) {
         state.otherFee,
         percent
     );
+    updateReceiptTotal();
 }
 
-// 切换到自定义小费输入框
 function showCustomTip() {
     playClickSound();
     triggerHaptic(15);
+    state.selectedTipPercent = null;
 
     document.querySelectorAll('.btn-pos-tip').forEach(b => b.classList.remove('selected'));
     document.getElementById('custom-tip-container').style.display = 'block';
-    
-    // 延迟 100ms 自动聚焦，确保键盘拉起顺畅
     setTimeout(() => document.getElementById('custom-tip').focus(), 100);
-    state.tipFee = 0; 
+    state.tipFee = 0;
+    updateReceiptTotal();
 }
 
-// 清空预置小费，使用输入框的自定义金额
-function clearTipSelection() {
+function handleCustomTipInput() {
     state.tipFee = clampNumber(document.getElementById('custom-tip').value, 0);
+    updateReceiptTotal();
 }
 
-// 进入最终支付单详情页 (含有大数溢出防御限制)
-function goToPay() {
-    playClickSound();
-    triggerHaptic(25);
-
-    // 兜底再次核算自定义小费
-    if (document.getElementById('custom-tip-container').style.display !== 'none') {
-        state.tipFee = clampNumber(document.getElementById('custom-tip').value, 0);
-    }
-    
+function updateReceiptTotal() {
     const bill = calculateBill({
         meterFare: state.currentFare,
         tollFee: state.tollFee,
         otherFee: state.otherFee,
         tipFee: state.tipFee
     });
-
-    document.getElementById('bill-meter').textContent = bill.meterFare.toFixed(2);
-    document.getElementById('bill-extra').textContent = bill.extraFee.toFixed(2);
-    document.getElementById('bill-tip').textContent = bill.tipFee.toFixed(2);
     document.getElementById('final-total').textContent = bill.total.toFixed(2);
-    
-    // 恢复为常规支付标题与二维码显示 (避免上一单彩蛋残留)
-    document.getElementById('pay-screen-title').textContent = '请支付';
-    document.getElementById('pay-qr-area').style.display = 'block';
-    document.getElementById('paid-stamp-area').style.display = 'none';
-    
-    // 正常支付下显示返回修改小费按钮
-    document.getElementById('btn-pay-back').style.display = 'inline-block';
+}
 
-    document.getElementById('tip-screen').style.display = 'none';
-    document.getElementById('pay-screen').style.display = 'flex';
+// ================= 👉 向右滑动撕纸手势交互 =================
+
+function bindTearSlider() {
+    const track = document.getElementById('tear-slider-track');
+    const thumb = document.getElementById('tear-slider-thumb');
+    if (!track || !thumb) return;
+
+    let isDragging = false;
+    let startX = 0;
+    let currentX = 0;
+
+    const onPointerDown = (e) => {
+        isDragging = true;
+        startX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
+        thumb.setPointerCapture?.(e.pointerId);
+    };
+
+    const onPointerMove = (e) => {
+        if (!isDragging) return;
+        const clientX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
+        const maxDrag = track.clientWidth - thumb.clientWidth - 6;
+        currentX = Math.max(0, Math.min(maxDrag, clientX - startX));
+        thumb.style.transform = `translateX(${currentX}px)`;
+
+        // 超过 75% 阈值立即触发撕纸
+        if (currentX >= maxDrag * 0.75) {
+            isDragging = false;
+            triggerTearReceipt();
+        }
+    };
+
+    const onPointerUp = () => {
+        if (!isDragging) return;
+        isDragging = false;
+        thumb.style.transition = 'transform 0.2s ease';
+        thumb.style.transform = 'translateX(0px)';
+        setTimeout(() => { thumb.style.transition = 'transform 0.08s ease'; }, 200);
+    };
+
+    thumb.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+}
+
+// 触发撕纸动画并复位下一单
+function triggerTearReceipt() {
+    playTearSound();
+    triggerHaptic(35);
+
+    const paper = document.getElementById('receipt-paper');
+    if (paper) {
+        paper.style.transition = 'transform 0.35s cubic-bezier(0.4, 0, 1, 1), opacity 0.35s ease';
+        paper.style.transform = 'translateX(130%) rotate(12deg)';
+        paper.style.opacity = '0';
+    }
+
+    setTimeout(() => {
+        if (paper) {
+            paper.style.transition = '';
+            paper.style.transform = '';
+            paper.style.opacity = '';
+        }
+        resetApp();
+    }, 350);
 }
 
 // ================= ⚡ 触发一键渡劫网贷彩蛋页面 =================
 
 function triggerBankruptcy() {
-    playClackSound();  // 终极清算大声 Clack！
-    triggerHaptic(50); // 强烈的微型手机震动
+    playClackSound();
+    triggerHaptic(50);
 
-    // 回填封顶金额展示
     document.getElementById('bankrupt-total').textContent = MAX_FARE.toFixed(2);
-    
-    // 全屏切换进入渡劫贷彩蛋页面
-    document.getElementById('meter-screen').classList.remove('active-screen');
     document.getElementById('meter-screen').style.display = 'none';
+    document.getElementById('meter-screen').classList.remove('active-screen');
+    document.getElementById('receipt-screen').style.display = 'none';
     document.getElementById('bankruptcy-screen').style.display = 'flex';
 }
 
-// 借款人点击“立即借款付清”逻辑 (爆笑弹窗并划扣车资)
 function submitLoanPayment() {
     playClackSound();
     triggerHaptic(40);
 
     alert("⚡ 借款申请成功！\n\n已成功从您的【打车借呗·一键渡劫贷】专属账户划扣 ¥999,999.00 并足额付清车资！\n\n💡 贴心提示：请于 5 秒内结清还款以享受首期免息特权！超时将自动转入全家九族工地无偿搬砖信用抵债流程 👷‍♂️🧱！不留遗憾！");
 
-    // 伪造最终账单并跳转到常规支付成功界面
-    state.tollFee = 0;
-    state.otherFee = 0;
-    state.tipFee = 0;
+    // 划扣后展示盖有 PAID 印章的小票
+    document.getElementById('bankruptcy-screen').style.display = 'none';
+    document.getElementById('receipt-screen').style.display = 'flex';
 
-    document.getElementById('bill-meter').textContent = MAX_FARE.toFixed(2);
-    document.getElementById('bill-extra').textContent = '0.00';
-    document.getElementById('bill-tip').textContent = '0.00';
+    document.getElementById('rec-meter-fare').textContent = MAX_FARE.toFixed(2);
     document.getElementById('final-total').textContent = MAX_FARE.toFixed(2);
-
-    // 渲染为“已代扣结清”的尊贵状态，隐藏扫码区域，展示 PAID 印章
-    document.getElementById('pay-screen-title').textContent = '🎉 账单已结清 (网贷代扣)';
     document.getElementById('pay-qr-area').style.display = 'none';
     document.getElementById('paid-stamp-area').style.display = 'flex';
-    
-    // 网贷代扣完成，合同生效，强行隐藏返回修改按钮，防反悔逻辑漏洞
-    document.getElementById('btn-pay-back').style.display = 'none';
-
-    // 隐藏网贷页，展示常规支付账单成功页
-    document.getElementById('bankruptcy-screen').style.display = 'none';
-    document.getElementById('pay-screen').style.display = 'flex';
 }
 
 // ================= 🔄 重置与重开下一单 =================
 
 function resetApp() {
     playClickSound();
-    triggerHaptic(30); // 重启大震动
+    triggerHaptic(30);
 
-    // 强制终止并释放可能驻留在后台的定时器和 GPS 监听器，封杀多路重影计费与内存泄漏
     if (state.timerId) {
         clearInterval(state.timerId);
         state.timerId = null;
@@ -856,47 +975,47 @@ function resetApp() {
     state.isRunning = false;
     state.startTime = 0;
     state.distance = 0;
-    state.fareDistance = 0;
+    state.dayKm = 0;
+    state.nightKm = 0;
     state.elapsedTime = 0;
     state.tollFee = 0;
     state.otherFee = 0;
     state.tipFee = 0;
-    state.nextAction = 'payment';
-    
-    // 彻底清除上一单的 GPS 锚点，防止新行程把旧终点当作首个参考点。
+    state.nextAction = 'receipt';
     state.lastLocationSample = null;
     
-    updateNightStatus(); // 重新核对此时的夜间费率
+    updateNightStatus();
     state.currentFare = calculateFare(config.rate, 0, state.isNight);
+    state.previousFare = state.currentFare;
     
-    // 恢复主计表盘屏幕，隐藏所有结账、中间残留及网贷彩蛋页面
+    // 恢复主计价器界面
     document.getElementById('meter-screen').style.display = 'flex';
     document.getElementById('meter-screen').classList.add('active-screen');
-    document.getElementById('pay-screen').style.display = 'none';
+    document.getElementById('receipt-screen').style.display = 'none';
     document.getElementById('bankruptcy-screen').style.display = 'none';
-    document.getElementById('extra-fee-screen').style.display = 'none';
-    document.getElementById('tip-screen').style.display = 'none';
-    document.getElementById('paid-stamp-area').style.display = 'none'; // 还原网贷印章
-    
+    document.getElementById('paid-stamp-area').style.display = 'none';
+    document.getElementById('pay-qr-area').style.display = 'block';
+
     document.getElementById('empty-sign').classList.remove('flipped');
     document.getElementById('start-trip-btn').disabled = false;
     document.getElementById('stop-trip-btn').disabled = true;
-    document.getElementById('gps-status').textContent = 'GPS: Ready';
+    document.getElementById('gps-status').textContent = '🛰️ GPS 待命';
     document.getElementById('gps-status').style.color = '#888';
-    
-    // 恢复主屏支付按钮的文字和样式；监听器始终保持不变。
+
     const payBtn = document.getElementById('next-step-btn');
-    payBtn.style.display = 'none';
-    payBtn.textContent = '支付';
-    payBtn.classList.remove('btn-bankrupt-alert');
-    
-    // 调用 updateDisplay 统一复位 LED 数码管，自动清空大数爆屏样式并填充 '0.00'
+    if (payBtn) {
+        payBtn.style.display = 'none';
+        payBtn.textContent = '查看小票';
+        payBtn.classList.remove('btn-bankrupt-alert');
+    }
+
     updateDisplay();
-    
-    // 附加费和自定义小费输入框重置为 placeholder 默认状态 ('' 会被 parseFloat 转化为 0)
+
     document.getElementById('toll-fee').value = '';
     document.getElementById('other-fee').value = '';
     document.getElementById('custom-tip').value = '';
+    const thumb = document.getElementById('tear-slider-thumb');
+    if (thumb) thumb.style.transform = 'translateX(0px)';
 }
 
 // 执行初始化
