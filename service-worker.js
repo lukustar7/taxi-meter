@@ -1,6 +1,6 @@
 // 缓存前缀用于限定清理范围；修订后缀用于同一应用版本内刷新静态资源。
 const CACHE_PREFIX = 'taxi-meter-';
-const CACHE_NAME = 'taxi-meter-v1.4.3-r4';
+const CACHE_NAME = 'taxi-meter-v1.4.3-r5';
 
 // 需要离线缓存的核心资源列表
 const ASSETS_TO_CACHE = [

@@ -144,6 +144,58 @@
         </div>
     </div>
 
+    <!-- 💳 独立全屏：美式 POS 机经典小费压迫屏 (Neta US Tip Culture) -->
+    <div id="tip-screen" class="screen-panel tip-pos-theme" style="display:none;">
+        <div class="pos-terminal-header">
+            <div class="pos-device-badge">TOUCHSCREEN POS TERMINAL</div>
+            <h2 class="pos-title">Add a Tip?</h2>
+            <p class="pos-subtitle">“It's just gonna ask you a quick question...”<br>司机把屏幕旋转递给了你，请选择您的小费心意：</p>
+            <div class="pos-fare-preview">本次行程车费：¥<span id="pos-base-fare">0.00</span></div>
+        </div>
+
+        <div class="pos-tip-container">
+            <!-- 经典美式 4 格暴击小费选项 -->
+            <div class="pos-tip-grid">
+                <button class="btn-us-tip" type="button" data-tip-percent="0.18">
+                    <span class="us-tip-pct">18%</span>
+                    <span class="us-tip-val" data-tip-value="0.18">¥0.00</span>
+                    <span class="us-tip-tag">😊 感谢师傅</span>
+                </button>
+                <button class="btn-us-tip selected" type="button" data-tip-percent="0.20">
+                    <span class="us-tip-pct">20%</span>
+                    <span class="us-tip-val" data-tip-value="0.20">¥0.00</span>
+                    <span class="us-tip-tag">🔥 师傅太给力</span>
+                </button>
+                <button class="btn-us-tip" type="button" data-tip-percent="0.25">
+                    <span class="us-tip-pct">25%</span>
+                    <span class="us-tip-val" data-tip-value="0.25">¥0.00</span>
+                    <span class="us-tip-tag">🏆 车神再世</span>
+                </button>
+                <button class="btn-us-tip" type="button" data-tip-percent="0.30">
+                    <span class="us-tip-pct">30%</span>
+                    <span class="us-tip-val" data-tip-value="0.30">¥0.00</span>
+                    <span class="us-tip-tag">🚀 老板大气发大财</span>
+                </button>
+            </div>
+
+            <!-- 自定义小费输入框 -->
+            <div id="custom-tip-container" class="pos-custom-tip-box" style="display:none;">
+                <div class="pos-input-wrapper">
+                    <span class="currency-symbol">¥</span>
+                    <input type="number" id="custom-tip" placeholder="输入自定义小费金额" min="0" max="999999" step="any">
+                </div>
+            </div>
+
+            <!-- 底部辅助选项与确认 -->
+            <div class="pos-actions-bar">
+                <button class="btn-pos-secondary" id="show-custom-tip-btn" type="button">✏️ Custom Tip (自定义)</button>
+                <button class="btn-pos-no-tip" id="btn-no-tip" type="button" data-tip-percent="0">No Tip (残忍拒绝 🥺)</button>
+            </div>
+
+            <button class="btn-pos-confirm" id="btn-confirm-tip" type="button">打印小票并结账 →</button>
+        </div>
+    </div>
+
     <!-- 🧾 一体化复古热敏打印小票结算屏 -->
     <div id="receipt-screen" class="screen-panel receipt-theme" style="display:none;">
         <div class="receipt-printer-slot"></div>
@@ -164,7 +216,7 @@
 
             <div class="receipt-dashed-line"></div>
 
-            <!-- 车费与附加费明细 -->
+            <!-- 车费、附加费与美式小费清晰明细 -->
             <div class="receipt-fee-block">
                 <div class="fee-row">
                     <span class="fee-name">里程运价</span>
@@ -184,36 +236,9 @@
                         <input type="number" id="other-fee" value="" placeholder="0" min="0" max="999999" step="any">
                     </div>
                 </div>
-            </div>
-
-            <div class="receipt-dashed-line"></div>
-
-            <!-- 美式小费恶搞互动区 -->
-            <div class="receipt-tip-section">
-                <div class="tip-prompt">🍗 给司机加个鸡腿？(100%归司机)</div>
-                <div class="tip-grid">
-                    <button class="btn-pos-tip" type="button" data-tip-percent="0.15">
-                        <span class="tip-percent">15%</span>
-                        <span class="tip-value" data-tip-value="0.15">¥0</span>
-                    </button>
-                    <button class="btn-pos-tip selected" type="button" data-tip-percent="0.2">
-                        <span class="tip-percent">20%</span>
-                        <span class="tip-value" data-tip-value="0.2">¥0</span>
-                    </button>
-                    <button class="btn-pos-tip" type="button" data-tip-percent="0.25">
-                        <span class="tip-percent">25%</span>
-                        <span class="tip-value" data-tip-value="0.25">¥0</span>
-                    </button>
-                </div>
-                <div class="tip-custom-row">
-                    <button class="btn-text-only" type="button" data-tip-percent="0">暂不打赏</button>
-                    <button class="btn-text-only" id="show-custom-tip-btn" type="button">自定义金额</button>
-                </div>
-                <div id="custom-tip-container" class="custom-tip-box" style="display:none;">
-                    <div class="input-wrapper">
-                        <span class="currency-symbol">¥</span>
-                        <input type="number" id="custom-tip" placeholder="随意打赏" min="0" max="999999" step="any">
-                    </div>
+                <div class="fee-row">
+                    <span class="fee-name">尊贵小费 (Tip)</span>
+                    <span class="fee-amount fee-highlight">¥<span id="rec-tip-fare">0.00</span></span>
                 </div>
             </div>
 

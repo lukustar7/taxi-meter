@@ -97,6 +97,7 @@ function bindEvents() {
         ['next-step-btn', handlePrimaryAction],
         ['settings-save-btn', saveSettings],
         ['settings-reset-btn', resetSettingsToDefault],
+        ['btn-confirm-tip', confirmTipAndPrintReceipt],
         ['show-custom-tip-btn', showCustomTip],
         ['loan-submit-btn', submitLoanPayment],
         ['btn-tear-fallback', triggerTearReceipt],
@@ -668,7 +669,7 @@ function handleStopPointerUp() {
     if (stopBtn) stopBtn.classList.remove('pressing');
 }
 
-// 结束行程并打印小票
+// 结束行程并触发美式小费压迫屏
 function stopTrip() {
     if (!state.isRunning) return;
 
@@ -695,11 +696,10 @@ function stopTrip() {
         return;
     }
 
-    // 播放打印机出纸机械音并展示小票
-    playPrintSound();
-    triggerHaptic(25);
-    state.nextAction = 'receipt';
-    showReceiptScreen();
+    // 经典 Neta：行程结束，司机把屏幕旋转递给乘客选小费！
+    playClickSound();
+    triggerHaptic(20);
+    showTipScreen();
 }
 
 function handlePrimaryAction() {
@@ -707,7 +707,7 @@ function handlePrimaryAction() {
         triggerBankruptcy();
         return;
     }
-    showReceiptScreen();
+    showTipScreen();
 }
 
 // GPS 位置更新处理：分段累加里程并监控跳表
@@ -833,11 +833,82 @@ function updateDisplay() {
     document.getElementById('display-time').textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
+// ================= 💳 美式 POS 机小费全屏压迫体验 =================
+
+function showTipScreen() {
+    document.getElementById('meter-screen').style.display = 'none';
+    document.getElementById('meter-screen').classList.remove('active-screen');
+    document.getElementById('receipt-screen').style.display = 'none';
+    document.getElementById('bankruptcy-screen').style.display = 'none';
+
+    const tipScreen = document.getElementById('tip-screen');
+    tipScreen.style.display = 'flex';
+
+    document.getElementById('pos-base-fare').textContent = state.currentFare.toFixed(2);
+
+    // 动态计算美式四档小费金额
+    [0.18, 0.20, 0.25, 0.30].forEach((percent) => {
+        const tip = calculateSuggestedTip(state.currentFare, 0, 0, percent);
+        const valNode = document.querySelector(`[data-tip-value="${percent}"]`);
+        if (valNode) valNode.textContent = `¥${tip.toFixed(2)}`;
+    });
+
+    document.getElementById('custom-tip-container').style.display = 'none';
+    document.getElementById('custom-tip').value = '';
+
+    // 默认高亮美式黄金标准 20%
+    selectTip(0.20);
+}
+
+function selectTip(percent) {
+    playClickSound();
+    triggerHaptic(15);
+    state.selectedTipPercent = percent;
+
+    document.getElementById('custom-tip-container').style.display = 'none';
+    document.getElementById('custom-tip').value = '';
+
+    document.querySelectorAll('.btn-us-tip').forEach((button) => {
+        button.classList.toggle('selected', Number(button.dataset.tipPercent) === percent);
+    });
+
+    state.tipFee = percent > 0 ? calculateSuggestedTip(state.currentFare, 0, 0, percent) : 0;
+}
+
+function showCustomTip() {
+    playClickSound();
+    triggerHaptic(15);
+    state.selectedTipPercent = null;
+
+    document.querySelectorAll('.btn-us-tip').forEach(b => b.classList.remove('selected'));
+    document.getElementById('custom-tip-container').style.display = 'block';
+    setTimeout(() => document.getElementById('custom-tip').focus(), 100);
+    state.tipFee = 0;
+}
+
+function handleCustomTipInput() {
+    state.tipFee = clampNumber(document.getElementById('custom-tip').value, 0);
+}
+
+// 确认小费 -> 打印机出纸吐出发票小票
+function confirmTipAndPrintReceipt() {
+    if (document.getElementById('custom-tip-container').style.display !== 'none') {
+        state.tipFee = clampNumber(document.getElementById('custom-tip').value, 0);
+    }
+
+    playPrintSound();
+    triggerHaptic(30);
+
+    document.getElementById('tip-screen').style.display = 'none';
+    showReceiptScreen();
+}
+
 // ================= 🧾 一体化复古热敏小票结算页面 =================
 
 function showReceiptScreen() {
     document.getElementById('meter-screen').style.display = 'none';
     document.getElementById('meter-screen').classList.remove('active-screen');
+    document.getElementById('tip-screen').style.display = 'none';
     document.getElementById('bankruptcy-screen').style.display = 'none';
     
     const receiptScreen = document.getElementById('receipt-screen');
@@ -854,74 +925,16 @@ function showReceiptScreen() {
     document.getElementById('rec-dist').textContent = `${state.distance.toFixed(1)} km`;
     document.getElementById('rec-rate').textContent = `${config.rate.base}元/${config.rate.baseKm}km`;
     document.getElementById('rec-meter-fare').textContent = state.currentFare.toFixed(2);
+    document.getElementById('rec-tip-fare').textContent = state.tipFee.toFixed(2);
 
-    // 默认选中 20% 鸡腿小费
     state.tollFee = clampNumber(document.getElementById('toll-fee').value, 0);
     state.otherFee = clampNumber(document.getElementById('other-fee').value, 0);
-    updateReceiptTipGrid();
-    selectTip(0.20);
     updateReceiptTotal();
 }
 
 function handleFeeInputChange() {
     state.tollFee = clampNumber(document.getElementById('toll-fee').value, 0);
     state.otherFee = clampNumber(document.getElementById('other-fee').value, 0);
-    updateReceiptTipGrid();
-    if (state.selectedTipPercent !== null) {
-        selectTip(state.selectedTipPercent);
-    } else {
-        handleCustomTipInput();
-    }
-}
-
-function updateReceiptTipGrid() {
-    [0.15, 0.20, 0.25].forEach((percent) => {
-        const tip = calculateSuggestedTip(
-            state.currentFare,
-            state.tollFee,
-            state.otherFee,
-            percent
-        );
-        const valueNode = document.querySelector(`[data-tip-value="${percent}"]`);
-        if (valueNode) valueNode.textContent = `¥${tip.toFixed(1)}`;
-    });
-}
-
-function selectTip(percent) {
-    playClickSound();
-    triggerHaptic(15);
-    state.selectedTipPercent = percent;
-
-    document.getElementById('custom-tip-container').style.display = 'none';
-    document.getElementById('custom-tip').value = '';
-
-    document.querySelectorAll('.btn-pos-tip').forEach((button) => {
-        button.classList.toggle('selected', Number(button.dataset.tipPercent) === percent);
-    });
-
-    state.tipFee = calculateSuggestedTip(
-        state.currentFare,
-        state.tollFee,
-        state.otherFee,
-        percent
-    );
-    updateReceiptTotal();
-}
-
-function showCustomTip() {
-    playClickSound();
-    triggerHaptic(15);
-    state.selectedTipPercent = null;
-
-    document.querySelectorAll('.btn-pos-tip').forEach(b => b.classList.remove('selected'));
-    document.getElementById('custom-tip-container').style.display = 'block';
-    setTimeout(() => document.getElementById('custom-tip').focus(), 100);
-    state.tipFee = 0;
-    updateReceiptTotal();
-}
-
-function handleCustomTipInput() {
-    state.tipFee = clampNumber(document.getElementById('custom-tip').value, 0);
     updateReceiptTotal();
 }
 
@@ -1066,6 +1079,7 @@ function resetApp() {
     // 恢复主计价器界面
     document.getElementById('meter-screen').style.display = 'flex';
     document.getElementById('meter-screen').classList.add('active-screen');
+    document.getElementById('tip-screen').style.display = 'none';
     document.getElementById('receipt-screen').style.display = 'none';
     document.getElementById('bankruptcy-screen').style.display = 'none';
     document.getElementById('paid-stamp-area').style.display = 'none';

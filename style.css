@@ -698,54 +698,263 @@ body {
     outline: none;
 }
 
-.receipt-tip-section {
-    text-align: center;
-}
-
-.tip-prompt {
-    font-size: 13px;
-    font-weight: bold;
-    color: #222;
-    margin-bottom: 10px;
-}
-
-.tip-grid {
+/* ================= 💳 美式 POS 机小费压迫屏 (Toast / Square Neta) ================= */
+.tip-pos-theme {
+    background: #121316;
+    color: #fff;
+    padding-top: calc(env(safe-area-inset-top) + 20px);
+    padding-bottom: calc(env(safe-area-inset-bottom) + 25px);
     display: flex;
-    gap: 10px;
-    margin-bottom: 10px;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
 }
 
-.btn-pos-tip {
-    flex: 1;
-    background: #e6e6df;
-    border: 2px solid #ccc;
-    border-radius: 12px;
-    padding: 10px 4px;
+.pos-terminal-header {
+    text-align: center;
+    margin-top: 10px;
+    width: 100%;
+    max-width: 440px;
+}
+
+.pos-device-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: #0A84FF;
+    background: rgba(10, 132, 255, 0.12);
+    border: 1px solid rgba(10, 132, 255, 0.3);
+    padding: 3px 10px;
+    border-radius: 99px;
+    margin-bottom: 12px;
+}
+
+.pos-title {
+    font-size: 32px;
+    font-weight: 800;
+    margin: 0 0 8px 0;
+    color: #fff;
+    letter-spacing: -0.5px;
+}
+
+.pos-subtitle {
+    font-size: 13px;
+    color: #8e8e93;
+    line-height: 1.5;
+    margin: 0 0 16px 0;
+    font-style: italic;
+}
+
+.pos-fare-preview {
+    font-size: 16px;
+    font-weight: bold;
+    color: #ffd60a;
+    background: #1c1c1e;
+    padding: 8px 16px;
+    border-radius: 10px;
+    display: inline-block;
+    border: 1px solid #333;
+}
+
+.pos-tip-container {
+    width: 100%;
+    max-width: 440px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.pos-tip-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.btn-us-tip {
+    background: #1c1c1e;
+    border: 2px solid #333;
+    border-radius: 16px;
+    padding: 16px 8px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    color: #222;
-    transition: all 0.2s;
-}
-
-.btn-pos-tip .tip-percent { font-size: 20px; font-weight: 800; }
-.btn-pos-tip .tip-value { font-size: 12px; color: #555; }
-
-.btn-pos-tip.selected {
-    background: #222;
     color: #fff;
-    border-color: #000;
+    transition: all 0.15s ease;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
-.btn-pos-tip.selected .tip-value { color: #ccc; }
+.btn-us-tip .us-tip-pct {
+    font-size: 32px;
+    font-weight: 900;
+    line-height: 1.1;
+    color: #fff;
+}
 
-.tip-custom-row {
+.btn-us-tip .us-tip-val {
+    font-size: 15px;
+    font-weight: bold;
+    color: #0A84FF;
+    margin: 4px 0 6px;
+}
+
+.btn-us-tip .us-tip-tag {
+    font-size: 11px;
+    color: #8e8e93;
+    font-weight: 500;
+}
+
+.btn-us-tip.selected {
+    background: #0A84FF;
+    border-color: #0A84FF;
+    box-shadow: 0 4px 20px rgba(10, 132, 255, 0.4);
+    transform: translateY(-2px);
+}
+
+.btn-us-tip.selected .us-tip-pct {
+    color: #fff;
+}
+
+.btn-us-tip.selected .us-tip-val {
+    color: #fff;
+}
+
+.btn-us-tip.selected .us-tip-tag {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.pos-custom-tip-box {
+    margin-top: 4px;
+}
+
+.pos-input-wrapper {
+    display: flex;
+    align-items: center;
+    background: #1c1c1e;
+    border-radius: 12px;
+    padding: 4px 14px;
+    border: 2px solid #0A84FF;
+}
+
+#custom-tip {
+    background: transparent;
+    border: none;
+    color: #fff;
+    font-size: 20px;
+    font-weight: bold;
+    width: 100%;
+    height: 44px;
+    outline: none;
+    font-family: inherit;
+}
+
+.pos-actions-bar {
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    padding: 0 4px;
+}
+
+.btn-pos-secondary {
+    background: none;
+    border: none;
+    color: #0A84FF;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 6px 0;
+}
+
+.btn-pos-no-tip {
+    background: none;
+    border: none;
+    color: #636366;
     font-size: 12px;
+    cursor: pointer;
+    padding: 6px 0;
+    text-decoration: underline;
+    transition: color 0.2s;
+}
+
+.btn-pos-no-tip:hover, .btn-pos-no-tip:active {
+    color: #ff453a;
+}
+
+.btn-pos-confirm {
+    width: 100%;
+    padding: 18px;
+    background: #34c759;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 800;
+    border: none;
+    border-radius: 16px;
+    box-shadow: 0 4px 18px rgba(52, 199, 89, 0.35);
+    cursor: pointer;
+    transition: transform 0.1s;
+    letter-spacing: 0.5px;
+}
+
+.btn-pos-confirm:active {
+    transform: scale(0.98);
+}
+
+/* 白天模式下的 POS 屏幕适配 */
+body.day-theme .tip-pos-theme {
+    background: #c8d3c5;
+    color: #1a2217;
+}
+
+body.day-theme .pos-title {
+    color: #1a2217;
+}
+
+body.day-theme .pos-subtitle {
+    color: #52634e;
+}
+
+body.day-theme .pos-fare-preview {
+    background: #b8c4b5;
+    color: #1a2217;
+    border-color: #a0b29a;
+}
+
+body.day-theme .btn-us-tip {
+    background: #b8c4b5;
+    border-color: #a0b29a;
+    color: #1a2217;
+}
+
+body.day-theme .btn-us-tip .us-tip-pct {
+    color: #1a2217;
+}
+
+body.day-theme .btn-us-tip .us-tip-val {
+    color: #2d68c4;
+}
+
+body.day-theme .btn-us-tip .us-tip-tag {
+    color: #52634e;
+}
+
+body.day-theme .btn-us-tip.selected {
+    background: #2d68c4;
+    border-color: #2d68c4;
+    color: #fff;
+}
+
+body.day-theme .btn-us-tip.selected .us-tip-pct,
+body.day-theme .btn-us-tip.selected .us-tip-val,
+body.day-theme .btn-us-tip.selected .us-tip-tag {
+    color: #fff;
+}
+
+.fee-highlight {
+    color: #d32f2f;
+    font-weight: 800;
 }
 
 .tip-custom-row .btn-text-only {
