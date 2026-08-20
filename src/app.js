@@ -51,7 +51,8 @@ const state = {
     nightKm: 0,           // 夜间段累计有效里程 (km)
     startIsNight: false,  // 起步时刻是否为夜间
     currentFare: 0,       // 当前计价费 (元)
-    previousFare: 0,      // 上一次计价车费，用于监控跳表
+    lastBeepFare: 0,      // 上一次触发跳表音效的整数大关 (元)
+    previousFare: 0,      // 上一次计价车费
     tollFee: 0,           // 路桥费
     otherFee: 0,          // 停车费/其他
     tipFee: 0,            // 小费
@@ -581,6 +582,7 @@ function startTrip() {
     state.startIsNight = state.isNight;
     state.currentFare = calculateFare(config.rate, 0, state.startIsNight);
     state.previousFare = state.currentFare;
+    state.lastBeepFare = Math.floor(state.currentFare);
     state.lastLocationSample = null;
 
     document.getElementById('empty-sign').classList.add('flipped'); 
@@ -784,13 +786,15 @@ function recalcFare() {
         startIsNight: state.startIsNight
     });
 
-    // ⏰【跳表压迫感】只要金额上涨，精准触发一声机械嘟与微震
-    if (state.isRunning && newFare > state.previousFare) {
+    // ⏰【跳表压迫感】车费整数金额每递增 ≥ 1 元（跨过 1 元大关），精准触发一声清脆机械嘟与微震
+    const currentWhole = Math.floor(newFare);
+    if (state.isRunning && currentWhole > state.lastBeepFare) {
         playMeterTickSound();
-        triggerHaptic(12);
-        state.previousFare = newFare;
+        triggerHaptic(15);
+        state.lastBeepFare = currentWhole;
     }
 
+    state.previousFare = newFare;
     state.currentFare = newFare;
 }
 
@@ -1075,6 +1079,7 @@ function resetApp() {
     updateNightStatus();
     state.currentFare = calculateFare(config.rate, 0, state.isNight);
     state.previousFare = state.currentFare;
+    state.lastBeepFare = Math.floor(state.currentFare);
     
     // 恢复主计价器界面
     document.getElementById('meter-screen').style.display = 'flex';
