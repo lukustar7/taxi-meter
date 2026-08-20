@@ -75,53 +75,67 @@
         </div>
     </main>
 
-    <!-- 设置页面 (Overlay) -->
+    <!-- 设置页面 (Overlay 紧凑分组设计) -->
     <div id="settings-panel" class="overlay-panel">
         <div class="panel-header">
             <h2>设置费率</h2>
             <button class="btn-close" id="settings-close-btn" type="button" aria-label="关闭设置">×</button>
         </div>
         <div class="panel-content">
-            <div class="form-group">
-                <label for="base-fare">起步价 (元)</label>
-                <input type="number" id="base-fare" value="16" min="0" max="999999" step="any">
+            <!-- 紧凑费率分组卡片 -->
+            <div class="settings-card">
+                <div class="settings-row">
+                    <label for="base-fare">起步价 (元)</label>
+                    <input type="number" id="base-fare" value="16" min="0" max="999999" step="any">
+                </div>
+                <div class="settings-row">
+                    <label for="base-dist">起步里程 (km)</label>
+                    <input type="number" id="base-dist" value="3" min="0" max="999999" step="any">
+                </div>
+                <div class="settings-row">
+                    <label for="per-km">续租费 (元/km)</label>
+                    <input type="number" id="per-km" value="2.7" min="0" max="999999" step="any">
+                </div>
+                <div class="settings-row">
+                    <label for="empty-dist">返空起征点 (km)</label>
+                    <input type="number" id="empty-dist" value="15" min="0" max="999999" step="any">
+                </div>
+                <div class="settings-row">
+                    <label for="empty-fee">返空倍率 (超出后)</label>
+                    <input type="number" id="empty-fee" value="1.5" min="1" max="100" step="any">
+                </div>
             </div>
-            <div class="form-group">
-                <label for="base-dist">起步里程 (km)</label>
-                <input type="number" id="base-dist" value="3" min="0" max="999999" step="any">
-            </div>
-            <div class="form-group">
-                <label for="per-km">续租费 (元/km)</label>
-                <input type="number" id="per-km" value="2.7" min="0" max="999999" step="any">
-            </div>
-            <div class="form-group">
-                <label for="empty-dist">返空里程起征点 (km)</label>
-                <input type="number" id="empty-dist" value="15" min="0" max="999999" step="any">
-            </div>
-            <div class="form-group">
-                <label for="empty-fee">返空加收倍率 (倍，超出起征点后)</label>
-                <input type="number" id="empty-fee" value="1.5" min="1" max="100" step="any">
-            </div>
-             <div class="form-group">
-                <label for="qr-upload">收款码 (自动支持正方形裁剪)</label>
-                <input type="file" id="qr-upload" accept="image/png,image/jpeg,image/webp">
+
+            <!-- 收款码设置卡片 -->
+            <div class="settings-card qr-card">
+                <div class="qr-header-row">
+                    <span class="qr-title-text">收款二维码</span>
+                    <label for="qr-upload" class="btn-upload-trigger">📷 导入收款码</label>
+                    <input type="file" id="qr-upload" accept="image/png,image/jpeg,image/webp">
+                </div>
                 <div id="qr-preview" class="qr-preview"></div>
-                <small>上传后可自由居中裁剪正方形二维码，保存在本地缓存。</small>
+                <small class="qr-hint">支持手指上下左右自由拖拽平移与缩放裁剪</small>
             </div>
-            <button class="btn-save" id="settings-save-btn" type="button">保存设置</button>
+
+            <!-- 底部保存与重置按钮 -->
+            <div class="settings-actions">
+                <button class="btn-save" id="settings-save-btn" type="button">保存设置</button>
+                <button class="btn-reset" id="settings-reset-btn" type="button">↺ 恢复官方默认费率</button>
+            </div>
         </div>
     </div>
 
-    <!-- 收款码正方形裁剪弹窗 -->
+    <!-- 收款码正方形裁剪弹窗 (支持拖拽平移与缩放) -->
     <div id="qr-crop-modal" class="crop-modal" style="display:none;">
         <div class="crop-modal-content">
             <h3>✂️ 裁剪正方形收款码</h3>
-            <div class="crop-viewport">
+            <p class="crop-gesture-hint">👆 支持按住画面任意拖拽平移位置</p>
+            <div class="crop-viewport" id="crop-viewport-box">
                 <canvas id="crop-canvas"></canvas>
             </div>
             <div class="crop-slider-bar">
-                <label for="crop-zoom">缩放选区：</label>
-                <input type="range" id="crop-zoom" min="1" max="3" step="0.02" value="1">
+                <label for="crop-zoom">缩放：</label>
+                <input type="range" id="crop-zoom" min="0.5" max="3" step="0.02" value="1">
             </div>
             <div class="crop-buttons">
                 <button type="button" id="crop-cancel-btn" class="btn-crop-cancel">取消</button>

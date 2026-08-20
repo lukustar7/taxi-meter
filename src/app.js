@@ -66,8 +66,11 @@ const state = {
     cropState: {
         image: null,
         scale: 1,
-        sourceWidth: 0,
-        sourceHeight: 0
+        panX: 0,
+        panY: 0,
+        isDragging: false,
+        startX: 0,
+        startY: 0
     }
 };
 
@@ -93,6 +96,7 @@ function bindEvents() {
         ['start-trip-btn', startTrip],
         ['next-step-btn', handlePrimaryAction],
         ['settings-save-btn', saveSettings],
+        ['settings-reset-btn', resetSettingsToDefault],
         ['show-custom-tip-btn', showCustomTip],
         ['loan-submit-btn', submitLoanPayment],
         ['btn-tear-fallback', triggerTearReceipt],
@@ -123,6 +127,9 @@ function bindEvents() {
         state.cropState.scale = Number.parseFloat(event.target.value) || 1;
         drawCropCanvas();
     });
+
+    // 绑定裁剪框手势拖拽平移事件
+    bindCropPanEvents();
 
     // 小票内附加费和自定义小费实时同步
     document.getElementById('toll-fee').addEventListener('input', handleFeeInputChange);
@@ -321,7 +328,33 @@ function saveSettings() {
     alert('费率设置已保存');
 }
 
-// ================= ✂️ 收款码正方形裁剪器实现 =================
+// 恢复官方默认费率 (上海标准)
+function resetSettingsToDefault() {
+    playClickSound();
+    triggerHaptic(20);
+
+    if (!confirm('确定要恢复官方默认费率吗？\n（上海标准：起步 16 元 / 3km，续租 2.7 元/km，返空 15km / 1.5倍）')) {
+        return;
+    }
+
+    config.rate = { ...DEFAULT_RATE };
+    saveRateConfig(config.rate);
+
+    document.getElementById('base-fare').value = config.rate.base;
+    document.getElementById('base-dist').value = config.rate.baseKm;
+    document.getElementById('per-km').value = config.rate.perKm;
+    document.getElementById('empty-dist').value = config.rate.emptyKm;
+    document.getElementById('empty-fee').value = config.rate.emptyRate;
+
+    updateNightStatus();
+    if (state.isRunning) {
+        recalcFare();
+        updateDisplay();
+    }
+    alert('已成功恢复官方默认费率配置！');
+}
+
+// ================= ✂️ 收款码正方形裁剪器 (支持任意拖拽平移与缩放) =================
 
 function handleQRFileSelect(input) {
     const file = input.files && input.files[0];
@@ -346,9 +379,9 @@ function handleQRFileSelect(input) {
         img.onerror = () => alert('解析图片失败');
         img.onload = () => {
             state.cropState.image = img;
-            state.cropState.sourceWidth = img.width;
-            state.cropState.sourceHeight = img.height;
             state.cropState.scale = 1;
+            state.cropState.panX = 0;
+            state.cropState.panY = 0;
             document.getElementById('crop-zoom').value = '1';
             openCropModal();
         };
@@ -369,6 +402,34 @@ function closeCropModal() {
     document.getElementById('qr-upload').value = '';
 }
 
+// 绑定裁剪框内手指/鼠标拖拽平移手势
+function bindCropPanEvents() {
+    const viewport = document.getElementById('crop-viewport-box');
+    if (!viewport) return;
+
+    viewport.addEventListener('pointerdown', (e) => {
+        if (!state.cropState.image) return;
+        state.cropState.isDragging = true;
+        state.cropState.startX = e.clientX - state.cropState.panX;
+        state.cropState.startY = e.clientY - state.cropState.panY;
+        viewport.setPointerCapture?.(e.pointerId);
+    });
+
+    window.addEventListener('pointermove', (e) => {
+        if (!state.cropState.isDragging) return;
+        state.cropState.panX = e.clientX - state.cropState.startX;
+        state.cropState.panY = e.clientY - state.cropState.startY;
+        drawCropCanvas();
+    });
+
+    const onPointerUp = () => {
+        state.cropState.isDragging = false;
+    };
+
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+}
+
 function drawCropCanvas() {
     const canvas = document.getElementById('crop-canvas');
     const img = state.cropState.image;
@@ -379,21 +440,32 @@ function drawCropCanvas() {
     canvas.width = size;
     canvas.height = size;
 
-    ctx.fillStyle = '#111';
+    ctx.fillStyle = '#0a0a0c';
     ctx.fillRect(0, 0, size, size);
 
     const minSide = Math.min(img.width, img.height);
     const scale = state.cropState.scale;
-    const cropSide = minSide / scale;
-    const sx = Math.max(0, (img.width - cropSide) / 2);
-    const sy = Math.max(0, (img.height - cropSide) / 2);
+    const drawW = (img.width / minSide) * size * scale;
+    const drawH = (img.height / minSide) * size * scale;
+    const destX = (size - drawW) / 2 + state.cropState.panX;
+    const destY = (size - drawH) / 2 + state.cropState.panY;
 
-    ctx.drawImage(img, sx, sy, cropSide, cropSide, 0, 0, size, size);
+    ctx.drawImage(img, destX, destY, drawW, drawH);
 
-    // 绘制正方形辅助边框
+    // 绘制 3x3 辅助九宫格线
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(80, 0); ctx.lineTo(80, size);
+    ctx.moveTo(160, 0); ctx.lineTo(160, size);
+    ctx.moveTo(0, 80); ctx.lineTo(size, 80);
+    ctx.moveTo(0, 160); ctx.lineTo(size, 160);
+    ctx.stroke();
+
+    // 绘制正方形取景边框
     ctx.strokeStyle = '#0A84FF';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(2, 2, size - 4, size - 4);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, size - 2, size - 2);
 }
 
 function confirmCropImage() {
@@ -406,15 +478,18 @@ function confirmCropImage() {
     exportCanvas.height = exportSize;
     const ctx = exportCanvas.getContext('2d');
 
+    const size = 240;
     const minSide = Math.min(img.width, img.height);
     const scale = state.cropState.scale;
-    const cropSide = minSide / scale;
-    const sx = Math.max(0, (img.width - cropSide) / 2);
-    const sy = Math.max(0, (img.height - cropSide) / 2);
+    const drawW = (img.width / minSide) * size * scale;
+    const drawH = (img.height / minSide) * size * scale;
+    const destX = (size - drawW) / 2 + state.cropState.panX;
+    const destY = (size - drawH) / 2 + state.cropState.panY;
 
+    const ratio = exportSize / size;
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, exportSize, exportSize);
-    ctx.drawImage(img, sx, sy, cropSide, cropSide, 0, 0, exportSize, exportSize);
+    ctx.drawImage(img, destX * ratio, destY * ratio, drawW * ratio, drawH * ratio);
 
     const dataUrl = exportCanvas.toDataURL('image/jpeg', 0.92);
     try {

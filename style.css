@@ -279,68 +279,144 @@ body {
 .btn-next { background: var(--btn-next); }
 .btn-phys:disabled { background: #333; color: #555; box-shadow: none; cursor: not-allowed; top: 6px; }
 
-/* 遮罩通用 */
+/* 遮罩通用 (严格保留刘海/灵动岛与底部手势条安全区) */
 .overlay-panel, .screen-panel {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
     background: var(--bg-color);
     z-index: 100;
-    padding: 30px 20px;
-    padding-bottom: calc(env(safe-area-inset-bottom) + 30px);
+    padding: calc(env(safe-area-inset-top) + 20px) 16px calc(env(safe-area-inset-bottom) + 24px);
     display: none;
     flex-direction: column;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    box-sizing: border-box;
 }
 
 .overlay-panel.active, .screen-panel.active { display: flex; }
 
-/* ======== 美化输入框与表单 (Unified Dark POS Style) ======== */
+/* ======== ⚙️ 设置面板紧凑卡片设计 (iOS Grouped Style) ======== */
 
-h2 {
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 0 4px;
+}
+
+.panel-header h2 {
     color: #fff;
-    font-size: 32px;
-    margin-bottom: 20px;
+    font-size: 26px;
     font-weight: 700;
+    margin: 0;
 }
 
-.form-group, .input-group-large {
+.btn-close {
+    font-size: 28px;
+    background: #333;
+    border-radius: 50%;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #fff;
+    border: none;
+    line-height: 1;
+}
+
+/* 紧凑费率卡片 */
+.settings-card {
     background: var(--pos-card-bg);
-    padding: 20px;
     border-radius: 16px;
-    margin-bottom: 20px;
     border: 1px solid #333;
+    overflow: hidden;
+    margin-bottom: 16px;
 }
 
-.form-group label, .input-group-large label {
-    display: block;
-    font-size: 16px;
-    color: var(--pos-text-sub);
-    margin-bottom: 12px;
+.settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-row:last-child {
+    border-bottom: none;
+}
+
+.settings-row label {
+    font-size: 15px;
+    color: #ddd;
     font-weight: 500;
+    flex: 1;
+    margin: 0;
 }
 
-/* 统一输入框样式 */
-input[type="number"], select, input[type="text"] {
-    width: 100%;
-    padding: 15px;
+.settings-row input[type="number"] {
+    width: 120px;
+    height: 40px;
+    padding: 6px 12px;
     background: var(--pos-input-bg);
     border: 1px solid #444;
     color: #fff;
-    font-size: 20px;
-    border-radius: 12px;
-    height: 56px;
+    font-size: 17px;
+    font-weight: bold;
+    border-radius: 8px;
+    text-align: right;
     outline: none;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition: border-color 0.2s;
     font-family: -apple-system, monospace;
 }
 
-input:focus, select:focus {
+.settings-row input:focus {
     border-color: var(--pos-blue);
-    box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.2);
+    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25);
+}
+
+/* 收款码卡片 */
+.qr-card {
+    padding: 14px 16px;
+}
+
+.qr-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.qr-title-text {
+    font-size: 15px;
+    color: #ddd;
+    font-weight: 500;
+}
+
+.btn-upload-trigger {
+    display: inline-block;
+    padding: 7px 14px;
+    background: #333;
+    color: #fff;
+    font-size: 13px;
+    font-weight: bold;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid #555;
+    transition: background 0.2s;
+}
+
+.btn-upload-trigger:active {
+    background: #444;
+}
+
+#qr-upload {
+    display: none;
 }
 
 .qr-preview {
-    margin-top: 12px;
+    margin-top: 10px;
 }
 
 .qr-preview:empty {
@@ -349,55 +425,67 @@ input:focus, select:focus {
 
 .qr-preview img {
     display: block;
-    width: 100px;
-    max-width: 100%;
-    aspect-ratio: 1;
+    width: 80px;
+    height: 80px;
     object-fit: contain;
     background: #fff;
     border-radius: 6px;
+    border: 1px solid #555;
 }
 
-/* 按钮美化 */
+.qr-hint {
+    display: block;
+    font-size: 11px;
+    color: #888;
+    margin-top: 8px;
+}
+
+/* 底部按钮组 */
+.settings-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 10px;
+}
+
 .btn-save {
     width: 100%;
-    padding: 20px;
+    padding: 16px;
     background: var(--pos-blue);
     color: white;
-    font-size: 20px;
-    font-weight: 600;
+    font-size: 18px;
+    font-weight: bold;
     border: none;
-    border-radius: 16px;
-    margin-top: 30px;
+    border-radius: 14px;
     box-shadow: 0 4px 15px rgba(10, 132, 255, 0.3);
     cursor: pointer;
+    transition: transform 0.1s;
 }
 
-.btn-close {
-    font-size: 32px;
-    padding: 10px;
-    background: #333;
-    border-radius: 50%;
-    width: 44px;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.btn-save:active {
+    transform: scale(0.98);
+}
+
+.btn-reset {
+    width: 100%;
+    padding: 12px;
+    background: transparent;
+    color: #888;
+    font-size: 14px;
+    font-weight: 500;
+    border: 1px solid #444;
+    border-radius: 12px;
     cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-reset:active {
+    background: rgba(255, 255, 255, 0.05);
     color: #fff;
-    border: none;
+    border-color: #666;
 }
 
-/* 设置面板头部 */
-.panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 30px;
-}
-
-.panel-header h2 { margin: 0; }
-
-/* ================= ✂️ 收款码正方形裁剪弹窗 ================= */
+/* ================= ✂️ 收款码正方形裁剪弹窗 (支持拖拽平移) ================= */
 .crop-modal {
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
@@ -413,36 +501,46 @@ input:focus, select:focus {
     background: #1c1c1e;
     border: 1px solid #444;
     border-radius: 18px;
-    padding: 20px;
+    padding: 18px;
     width: 100%;
-    max-width: 360px;
+    max-width: 340px;
     text-align: center;
     color: #fff;
     box-shadow: 0 10px 30px rgba(0,0,0,0.8);
 }
 
 .crop-modal-content h3 {
-    margin-top: 0;
-    font-size: 20px;
-    margin-bottom: 15px;
+    margin: 0 0 6px 0;
+    font-size: 19px;
+}
+
+.crop-gesture-hint {
+    margin: 0 0 12px 0;
+    font-size: 12px;
+    color: #0A84FF;
 }
 
 .crop-viewport {
     width: 240px;
     height: 240px;
-    margin: 10px auto 15px;
-    border: 2px dashed var(--pos-blue);
-    border-radius: 8px;
-    background: #000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    margin: 0 auto 14px;
+    border: 2px solid #0A84FF;
+    border-radius: 12px;
+    background: #050505;
+    position: relative;
     overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+}
+
+.crop-viewport:active {
+    cursor: grabbing;
 }
 
 .crop-viewport canvas {
-    max-width: 100%;
-    max-height: 100%;
+    width: 100%;
+    height: 100%;
+    display: block;
 }
 
 .crop-slider-bar {
@@ -463,7 +561,7 @@ input:focus, select:focus {
 
 .crop-buttons {
     display: flex;
-    gap: 12px;
+    gap: 10px;
 }
 
 .btn-crop-cancel, .btn-crop-confirm {
