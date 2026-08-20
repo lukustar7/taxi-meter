@@ -850,11 +850,14 @@ function showTipScreen() {
 
     document.getElementById('pos-base-fare').textContent = state.currentFare.toFixed(2);
 
-    // 动态计算美式四档小费金额
-    [0.18, 0.20, 0.25, 0.30].forEach((percent) => {
-        const tip = calculateSuggestedTip(state.currentFare, 0, 0, percent);
-        const valNode = document.querySelector(`[data-tip-value="${percent}"]`);
-        if (valNode) valNode.textContent = `¥${tip.toFixed(2)}`;
+    // 动态计算美式四档小费金额并更新卡片显示
+    document.querySelectorAll('.btn-us-tip').forEach((btn) => {
+        const percent = Number(btn.dataset.tipPercent) || 0;
+        const valNode = btn.querySelector('.us-tip-val');
+        if (valNode) {
+            const tip = calculateSuggestedTip(state.currentFare, 0, 0, percent);
+            valNode.textContent = `¥${tip.toFixed(2)}`;
+        }
     });
 
     document.getElementById('custom-tip-container').style.display = 'none';
