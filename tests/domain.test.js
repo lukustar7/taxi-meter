@@ -252,4 +252,18 @@ describe('GPS 样本判定', () => {
         assert.equal(decision.shouldUpdateAnchor, true);
         assert.ok(decision.distanceKm > 2.0, '出隧道后的 2km+ 有效里程应被正常累计');
     });
+
+    it('短时间内低速蠕行：微小位移（<3米）不前移锚点，防止芝诺悖论吞里程', () => {
+        const previous = createLocationSample({ timestamp: 10000 });
+        // 2秒内微移 1.5米（约 0.000015 度），没有硬件测速
+        const current = createLocationSample({
+            longitude: previous.longitude + 0.000015,
+            timestamp: previous.timestamp + 2000,
+            speedMps: 0
+        });
+        const decision = analyzeLocationSample(previous, current);
+
+        assert.equal(decision.status, GPS_SAMPLE_STATUS.STATIONARY);
+        assert.equal(decision.shouldUpdateAnchor, false, '短时间内的微小蠕行不应前移锚点');
+    });
 });

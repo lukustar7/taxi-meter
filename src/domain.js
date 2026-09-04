@@ -1,5 +1,5 @@
 // 应用版本只在一个位置维护，页面标题、离线缓存版本和发布记录需与它保持一致。
-export const APP_VERSION = '1.4.4';
+export const APP_VERSION = '1.5.0';
 
 // 默认上海运价是所有外部配置的安全基线；冻结对象可防止运行时被意外改写。
 export const DEFAULT_RATE = Object.freeze({
@@ -211,7 +211,9 @@ export function calculateBill({ meterFare, tollFee, otherFee, tipFee }) {
 export function calculateSuggestedTip(meterFare, tollFee, otherFee, rawPercent) {
     const percent = clampNumber(rawPercent, 0, 0, 1);
     const subtotal = calculateBill({ meterFare, tollFee, otherFee, tipFee: 0 }).total;
-    return Math.min(subtotal * percent, MAX_FARE);
+    const rawTip = subtotal * percent;
+    const tipCents = Math.round((rawTip + Number.EPSILON) * 100);
+    return Math.min(tipCents / 100, MAX_FARE);
 }
 
 /**
@@ -328,9 +330,12 @@ export function analyzeLocationSample(previousSample, currentSample) {
         averageSpeedKmh <= GPS_LIMITS.maxReasonableSpeedKmh;
 
     if (!hasReportedMovement && !hasMeasuredMovement) {
+        // 短时间（<10秒）内的微小蠕行不立即前移锚点，允许连续微小位移累加到3米以上；
+        // 静止超过10秒后刷新锚点，避免起步瞬间平均时速被长时间分母摊薄
+        const shouldRefreshAnchor = elapsedSeconds >= 10;
         return createGpsDecision(
             GPS_SAMPLE_STATUS.STATIONARY,
-            true,
+            shouldRefreshAnchor,
             0,
             elapsedSeconds,
             averageSpeedKmh

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>TAXI METER v1.4.4</title>
+    <title>TAXI METER v1.5.0</title>
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <!-- PWA 配置 -->
@@ -11,6 +11,7 @@
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#151617">
 </head>
 <body class="retro-theme">
 
@@ -36,7 +37,7 @@
                 <div class="led-row main-row">
                     <span class="currency">¥</span>
                     <div class="led-digits-wrap">
-                        <span class="led-ghost" aria-hidden="true">8888.88</span>
+                        <span class="led-ghost" id="ghost-price" aria-hidden="true">8888.88</span>
                         <span class="value" id="display-price">0.00</span>
                     </div>
                 </div>
@@ -44,14 +45,14 @@
                     <div class="sub-item">
                         <span class="label">KM</span>
                         <div class="led-digits-wrap">
-                            <span class="led-ghost" aria-hidden="true">888.8</span>
+                            <span class="led-ghost" id="ghost-km" aria-hidden="true">888.8</span>
                             <span class="value" id="display-km">0.0</span>
                         </div>
                     </div>
                     <div class="sub-item">
                         <span class="label">TIME</span>
                         <div class="led-digits-wrap">
-                            <span class="led-ghost" aria-hidden="true">88:88</span>
+                            <span class="led-ghost" id="ghost-time" aria-hidden="true">88:88</span>
                             <span class="value" id="display-time">00:00</span>
                         </div>
                     </div>

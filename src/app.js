@@ -34,6 +34,7 @@ const MAX_QR_SOURCE_BYTES = 5 * 1024 * 1024;
 // LocalStorage 专用键名集中管理
 const STORAGE_CONFIG_KEY = 'retro_taxi_meter_config_v1';
 const STORAGE_QR_KEY = 'retro_taxi_meter_qr_v1';
+const STORAGE_ACTIVE_TRIP_KEY = 'retro_taxi_meter_active_trip_v1';
 
 // 用户配置
 const config = {
@@ -85,6 +86,7 @@ function init() {
     initTheme();             // 初始化昼夜主题
     updateNightStatus();     // 检测并更新夜间状态
     updateDisplay();         // 刷新数字显示
+    checkAndRestoreActiveTrip(); // 检测未完成行程并提示恢复
     console.info(`[App] Retro Taxi Meter v${APP_VERSION} 初始化完成`);
 }
 
@@ -127,7 +129,7 @@ function bindEvents() {
     });
     document.getElementById('crop-zoom').addEventListener('input', (event) => {
         state.cropState.scale = Number.parseFloat(event.target.value) || 1;
-        drawCropCanvas();
+        scheduleCropDraw();
     });
 
     // 绑定裁剪框手势拖拽平移事件
@@ -199,6 +201,61 @@ function readStorageItem(key) {
     }
 }
 
+// 行程进行中数据轻量本地容灾持久化（防止车载手滑下拉刷新或后台杀进程导致行程全损）
+function persistActiveTripSilently() {
+    if (!state.isRunning) return;
+    try {
+        const payload = {
+            startTime: state.startTime,
+            elapsedTime: state.elapsedTime,
+            distance: state.distance,
+            dayKm: state.dayKm,
+            nightKm: state.nightKm,
+            startIsNight: state.startIsNight,
+            currentFare: state.currentFare,
+            lastSavedAt: Date.now()
+        };
+        localStorage.setItem(STORAGE_ACTIVE_TRIP_KEY, JSON.stringify(payload));
+    } catch (_) {}
+}
+
+function clearActiveTripPersistence() {
+    try {
+        localStorage.removeItem(STORAGE_ACTIVE_TRIP_KEY);
+    } catch (_) {}
+}
+
+function checkAndRestoreActiveTrip() {
+    try {
+        const saved = readStorageItem(STORAGE_ACTIVE_TRIP_KEY);
+        if (!saved) return;
+        const data = JSON.parse(saved);
+        if (!data || !data.startTime || (Date.now() - (data.lastSavedAt || 0) > 12 * 3600 * 1000)) {
+            clearActiveTripPersistence();
+            return;
+        }
+
+        const restoreDistance = Number(data.distance) || 0;
+        const restoreFare = Number(data.currentFare) || 0;
+        if (confirm(`检测到上次未完成的行程，是否继续恢复计费？\n（已行驶 ${restoreDistance.toFixed(1)} km，车费 ¥${restoreFare.toFixed(2)}）`)) {
+            state.startTime = data.startTime;
+            state.elapsedTime = Number(data.elapsedTime) || 0;
+            state.distance = restoreDistance;
+            state.dayKm = Number(data.dayKm) || 0;
+            state.nightKm = Number(data.nightKm) || 0;
+            state.startIsNight = Boolean(data.startIsNight);
+            state.currentFare = restoreFare;
+            state.previousFare = state.currentFare;
+            state.lastBeepFare = Math.floor(state.currentFare);
+            startTrip(true);
+        } else {
+            clearActiveTripPersistence();
+        }
+    } catch (e) {
+        clearActiveTripPersistence();
+    }
+}
+
 // 渲染收款码
 function renderQRImage(dataUrl) {
     config.qrImage = dataUrl;
@@ -209,19 +266,29 @@ function renderQRImage(dataUrl) {
     const img = document.createElement('img');
     img.src = dataUrl;
     img.alt = '收款码预览';
+    img.onerror = () => {
+        preview.replaceChildren();
+    };
     preview.appendChild(img);
 
     const payImg = document.getElementById('pay-qr-img');
+    const defaultQrText = document.getElementById('default-qr-text');
     if (payImg) {
+        payImg.onerror = () => {
+            payImg.style.display = 'none';
+            if (defaultQrText) defaultQrText.style.display = 'block';
+        };
         payImg.src = dataUrl;
         payImg.style.display = 'block';
     }
-    const defaultQrText = document.getElementById('default-qr-text');
     if (defaultQrText) defaultQrText.style.display = 'none';
 }
 
 function getDataUrlByteSize(dataUrl) {
-    const base64 = dataUrl.split(',')[1] || '';
+    if (typeof dataUrl !== 'string') return 0;
+    const commaIndex = dataUrl.indexOf(',');
+    if (commaIndex === -1) return 0;
+    const base64 = dataUrl.slice(commaIndex + 1);
     return Math.ceil(base64.length * 3 / 4);
 }
 
@@ -230,7 +297,8 @@ function isAllowedQRImageType(type) {
 }
 
 function isAllowedQRDataUrl(dataUrl) {
-    const match = typeof dataUrl === 'string' && dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,/);
+    if (typeof dataUrl !== 'string' || dataUrl.length > MAX_QR_IMAGE_BYTES * 2) return false;
+    const match = dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,/);
     return Boolean(match) && getDataUrlByteSize(dataUrl) <= MAX_QR_IMAGE_BYTES;
 }
 
@@ -392,13 +460,32 @@ function handleQRFileSelect(input) {
     reader.readAsDataURL(file);
 }
 
+let cropRafId = null;
+
+function scheduleCropDraw() {
+    if (cropRafId) return;
+    cropRafId = requestAnimationFrame(() => {
+        cropRafId = null;
+        drawCropCanvas();
+    });
+}
+
 function openCropModal() {
     const modal = document.getElementById('qr-crop-modal');
+    const canvas = document.getElementById('crop-canvas');
+    if (canvas) {
+        canvas.width = 240;
+        canvas.height = 240;
+    }
     modal.style.display = 'flex';
     drawCropCanvas();
 }
 
 function closeCropModal() {
+    if (cropRafId) {
+        cancelAnimationFrame(cropRafId);
+        cropRafId = null;
+    }
     const modal = document.getElementById('qr-crop-modal');
     modal.style.display = 'none';
     document.getElementById('qr-upload').value = '';
@@ -421,11 +508,14 @@ function bindCropPanEvents() {
         if (!state.cropState.isDragging) return;
         state.cropState.panX = e.clientX - state.cropState.startX;
         state.cropState.panY = e.clientY - state.cropState.startY;
-        drawCropCanvas();
+        scheduleCropDraw();
     });
 
-    const onPointerUp = () => {
-        state.cropState.isDragging = false;
+    const onPointerUp = (e) => {
+        if (state.cropState.isDragging) {
+            state.cropState.isDragging = false;
+            viewport.releasePointerCapture?.(e.pointerId);
+        }
     };
 
     window.addEventListener('pointerup', onPointerUp);
@@ -439,8 +529,6 @@ function drawCropCanvas() {
 
     const ctx = canvas.getContext('2d');
     const size = 240;
-    canvas.width = size;
-    canvas.height = size;
 
     ctx.fillStyle = '#0a0a0c';
     ctx.fillRect(0, 0, size, size);
@@ -506,12 +594,26 @@ function confirmCropImage() {
     }
 }
 
-// 页面切回前台时，若计价器仍在跑，则重新请求常亮锁并激活音频
+// 页面切回前台时，若计价器仍在跑，则重新请求常亮锁、激活音频并检查定位管道自愈
 document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState === 'visible') {
         ensureAudioActive();
         if (state.isRunning) {
             await requestWakeLock();
+            // 解决 iOS WebKit 切后台休眠导致定位通道变僵尸：若距上次采样超 12 秒，自动注销并重建监听
+            const lastSampleTime = state.lastLocationSample ? state.lastLocationSample.timestamp : 0;
+            if (Date.now() - lastSampleTime > 12000 && navigator.geolocation) {
+                if (state.watchId !== null) {
+                    navigator.geolocation.clearWatch(state.watchId);
+                }
+                const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
+                try {
+                    state.watchId = navigator.geolocation.watchPosition(onLocationUpdate, onLocationError, options);
+                    console.info('[GPS] 检测到定位管道休眠，已自动重启监听器');
+                } catch (e) {
+                    console.warn('[GPS] 重启定位监听失败:', e);
+                }
+            }
         }
     }
 });
@@ -545,12 +647,15 @@ function initTheme() {
 function setTheme(theme) {
     const body = document.body;
     const btn = document.getElementById('theme-toggle-btn');
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
     if (theme === 'day') {
         body.classList.add('day-theme');
         btn.textContent = '☀️';
+        if (themeMeta) themeMeta.setAttribute('content', '#c8d4c5');
     } else {
         body.classList.remove('day-theme');
         btn.textContent = '🌙';
+        if (themeMeta) themeMeta.setAttribute('content', '#151617');
     }
 }
 
@@ -563,7 +668,7 @@ function toggleTheme() {
 
 // ================= 🚖 核心计费与 GPS 定位 =================
 
-function startTrip() {
+function startTrip(isRestoring = false) {
     if (state.isRunning) return;
     if (!navigator.geolocation) { alert('您的浏览器不支持 GPS 定位'); return; }
 
@@ -572,18 +677,22 @@ function startTrip() {
     triggerHaptic(30);
 
     state.isRunning = true;
-    state.startTime = Date.now();
-    state.distance = 0;
-    state.dayKm = 0;
-    state.nightKm = 0;
-    state.elapsedTime = 0;
+    if (!isRestoring) {
+        state.startTime = Date.now();
+        state.distance = 0;
+        state.dayKm = 0;
+        state.nightKm = 0;
+        state.elapsedTime = 0;
+        updateNightStatus();
+        state.startIsNight = state.isNight;
+        state.currentFare = calculateFare(config.rate, 0, state.startIsNight);
+        state.previousFare = state.currentFare;
+        state.lastBeepFare = Math.floor(state.currentFare);
+    } else {
+        updateNightStatus();
+        recalcFare();
+    }
     state.nextAction = 'receipt';
-    
-    updateNightStatus();
-    state.startIsNight = state.isNight;
-    state.currentFare = calculateFare(config.rate, 0, state.startIsNight);
-    state.previousFare = state.currentFare;
-    state.lastBeepFare = Math.floor(state.currentFare);
     state.lastLocationSample = null;
 
     document.getElementById('empty-sign').classList.add('flipped'); 
@@ -598,6 +707,7 @@ function startTrip() {
             recalcFare();
         }
         updateDisplay();
+        persistActiveTripSilently();
     }, 1000);
 
     const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
@@ -609,6 +719,7 @@ function startTrip() {
     }
 
     requestWakeLock();
+    persistActiveTripSilently();
 }
 
 function abortTripStart(error) {
@@ -619,6 +730,7 @@ function abortTripStart(error) {
 
     state.isRunning = false;
     state.lastLocationSample = null;
+    clearActiveTripPersistence();
     releaseWakeLock();
     document.getElementById('empty-sign').classList.remove('flipped');
     document.getElementById('start-trip-btn').disabled = false;
@@ -692,6 +804,7 @@ function handleStopPointerUp(e) {
 function stopTrip() {
     if (!state.isRunning) return;
 
+    clearActiveTripPersistence();
     state.elapsedTime = calculateElapsedSeconds(state.startTime);
     state.isRunning = false;
     if (state.timerId) {
@@ -785,11 +898,17 @@ function onLocationUpdate(position) {
     updateNightStatus();
     recalcFare(); // 重新核算分段车费
     updateDisplay(); // 刷新 LED 数码管
+    persistActiveTripSilently(); // 运行态轻量存盘防刷新
 }
 
 function onLocationError(err) {
     if (!state.isRunning) return;
-    document.getElementById('gps-status').textContent = `GPS 异常: ${err.message}`;
+    if (err && err.code === 1) { // PERMISSION_DENIED
+        abortTripStart(err);
+        alert('GPS 定位权限已被拒绝。请在浏览器或系统设置中允许定位权限，然后重新开始！');
+        return;
+    }
+    document.getElementById('gps-status').textContent = `GPS 异常: ${err && err.message ? err.message : '弱信号'}`;
     document.getElementById('gps-status').style.color = 'red';
 }
 
@@ -822,6 +941,10 @@ function updateDisplay() {
     const priceStr = state.currentFare.toFixed(2);
     const priceDisplayNode = document.getElementById('display-price');
     priceDisplayNode.textContent = priceStr;
+    const ghostPriceNode = document.getElementById('ghost-price');
+    if (ghostPriceNode) {
+        ghostPriceNode.textContent = priceStr.replace(/[0-9]/g, '8');
+    }
     
     const mainRow = priceDisplayNode.parentElement.parentElement;
     let targetClass = '';
@@ -850,10 +973,21 @@ function updateDisplay() {
         }
     }
     
-    document.getElementById('display-km').textContent = state.distance.toFixed(1);
+    const kmStr = state.distance.toFixed(1);
+    document.getElementById('display-km').textContent = kmStr;
+    const ghostKmNode = document.getElementById('ghost-km');
+    if (ghostKmNode) {
+        ghostKmNode.textContent = kmStr.replace(/[0-9]/g, '8');
+    }
+
     const mins = Math.floor(state.elapsedTime / 60);
     const secs = state.elapsedTime % 60;
-    document.getElementById('display-time').textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    document.getElementById('display-time').textContent = timeStr;
+    const ghostTimeNode = document.getElementById('ghost-time');
+    if (ghostTimeNode) {
+        ghostTimeNode.textContent = timeStr.replace(/[0-9]/g, '8');
+    }
 }
 
 // ================= 💳 美式 POS 机小费全屏压迫体验 =================
@@ -914,6 +1048,7 @@ function showCustomTip() {
 
 function handleCustomTipInput() {
     state.tipFee = clampNumber(document.getElementById('custom-tip').value, 0);
+    updateReceiptTotal();
 }
 
 // 确认小费 -> 打印机出纸吐出发票小票
@@ -950,8 +1085,6 @@ function showReceiptScreen() {
     document.getElementById('rec-time').textContent = `${mins}分${secs}秒`;
     document.getElementById('rec-dist').textContent = `${state.distance.toFixed(1)} km`;
     document.getElementById('rec-rate').textContent = `${config.rate.base}元/${config.rate.baseKm}km`;
-    document.getElementById('rec-meter-fare').textContent = state.currentFare.toFixed(2);
-    document.getElementById('rec-tip-fare').textContent = state.tipFee.toFixed(2);
 
     state.tollFee = clampNumber(document.getElementById('toll-fee').value, 0);
     state.otherFee = clampNumber(document.getElementById('other-fee').value, 0);
@@ -971,7 +1104,12 @@ function updateReceiptTotal() {
         otherFee: state.otherFee,
         tipFee: state.tipFee
     });
-    document.getElementById('final-total').textContent = bill.total.toFixed(2);
+    const meterFareEl = document.getElementById('rec-meter-fare');
+    if (meterFareEl) meterFareEl.textContent = state.currentFare.toFixed(2);
+    const tipFareEl = document.getElementById('rec-tip-fare');
+    if (tipFareEl) tipFareEl.textContent = state.tipFee.toFixed(2);
+    const totalEl = document.getElementById('final-total');
+    if (totalEl) totalEl.textContent = bill.total.toFixed(2);
 }
 
 // ================= 👉 向右滑动撕纸手势交互 =================
@@ -1078,6 +1216,8 @@ function submitLoanPayment() {
 function resetApp() {
     playClickSound();
     triggerHaptic(30);
+
+    clearActiveTripPersistence();
 
     if (state.timerId) {
         clearInterval(state.timerId);

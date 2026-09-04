@@ -292,6 +292,7 @@ body {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     box-sizing: border-box;
+    overscroll-behavior: contain;
 }
 
 .overlay-panel.active, .screen-panel.active { display: flex; }
@@ -496,6 +497,7 @@ body {
     align-items: center;
     justify-content: center;
     padding: 20px;
+    overscroll-behavior: contain;
 }
 
 .crop-modal-content {
@@ -1117,6 +1119,7 @@ body.day-theme .btn-us-tip.selected .us-tip-tag {
     cursor: grab;
     box-shadow: 0 2px 6px rgba(0,0,0,0.4);
     transition: transform 0.08s ease;
+    touch-action: none;
 }
 
 .tear-slider-thumb:active {
@@ -1580,3 +1583,93 @@ body.day-theme .tear-slider-track {
         background: #f59e0b !important;
     }
 }
+
+/* ================= 🚗 车载横屏模式深度适配 (In-Car Landscape Mode) ================= */
+@media (orientation: landscape) and (max-height: 520px) {
+    body {
+        padding: 0 12px;
+    }
+
+    header {
+        padding: calc(env(safe-area-inset-top) + 4px) 16px 4px 16px;
+    }
+
+    #meter-screen {
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        padding: 8px 16px calc(env(safe-area-inset-bottom) + 8px);
+        max-width: 900px;
+        margin: 0 auto;
+    }
+
+    .meter-box {
+        flex: 1.3;
+        margin-bottom: 0;
+        padding: 16px 20px;
+        max-width: 520px;
+    }
+
+    .empty-sign-wrapper {
+        top: -18px;
+        left: 20px;
+    }
+
+    .empty-sign {
+        padding: 5px 14px;
+        font-size: 15px;
+    }
+
+    .main-row {
+        font-size: clamp(34px, 12vh, 54px);
+        margin-bottom: 6px;
+    }
+
+    .sub-row {
+        margin-top: 10px;
+        font-size: 15px;
+    }
+
+    .rate-bar {
+        margin-top: 8px;
+    }
+
+    .control-panel {
+        flex: 0.75;
+        max-width: 200px;
+        flex-direction: column;
+        gap: 10px;
+        padding: 0;
+        padding-bottom: 0;
+    }
+
+    .btn-phys {
+        padding: 14px 0;
+        font-size: 18px;
+        border-radius: 12px;
+    }
+
+    .crop-modal-content {
+        max-height: 92vh;
+        overflow-y: auto;
+        padding: 12px;
+    }
+
+    .crop-viewport {
+        width: 190px;
+        height: 190px;
+        margin-bottom: 8px;
+    }
+
+    .receipt-paper {
+        max-width: 440px;
+        padding: 20px 16px;
+    }
+
+    .pos-tip-container {
+        max-width: 560px;
+        padding: 16px;
+    }
+}
+
