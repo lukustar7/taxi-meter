@@ -238,4 +238,18 @@ describe('GPS 样本判定', () => {
         assert.equal(decision.shouldUpdateAnchor, true);
         assert.equal(decision.distanceKm, 0);
     });
+
+    it('出隧道或切后台长跨度场景：时速合理时距离大于2km不应被误判为跳点', () => {
+        // 隧道盲区耗时 180 秒（3分钟），前进了约 2.8 公里（约 0.025 度经度），平均时速约 56km/h，合理有效
+        const previous = createLocationSample({ timestamp: 10000 });
+        const current = createLocationSample({
+            longitude: previous.longitude + 0.025,
+            timestamp: previous.timestamp + 180000
+        });
+        const decision = analyzeLocationSample(previous, current);
+
+        assert.equal(decision.status, GPS_SAMPLE_STATUS.MOVING);
+        assert.equal(decision.shouldUpdateAnchor, true);
+        assert.ok(decision.distanceKm > 2.0, '出隧道后的 2km+ 有效里程应被正常累计');
+    });
 });

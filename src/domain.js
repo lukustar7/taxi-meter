@@ -1,5 +1,5 @@
 // 应用版本只在一个位置维护，页面标题、离线缓存版本和发布记录需与它保持一致。
-export const APP_VERSION = '1.4.3';
+export const APP_VERSION = '1.4.4';
 
 // 默认上海运价是所有外部配置的安全基线；冻结对象可防止运行时被意外改写。
 export const DEFAULT_RATE = Object.freeze({
@@ -302,8 +302,12 @@ export function analyzeLocationSample(previousSample, currentSample) {
     const reportedSpeedKmh = Number.isFinite(currentSample.speedMps)
         ? currentSample.speedMps * 3.6
         : null;
+    const maxAllowedDistanceKm = Math.max(
+        GPS_LIMITS.maxSingleSegmentKm,
+        (GPS_LIMITS.maxReasonableSpeedKmh * (elapsedSeconds / 3600))
+    );
     const exceedsPhysicalLimits = !Number.isFinite(distanceKm) ||
-        distanceKm > GPS_LIMITS.maxSingleSegmentKm ||
+        distanceKm > maxAllowedDistanceKm ||
         averageSpeedKmh > GPS_LIMITS.maxReasonableSpeedKmh;
 
     if (exceedsPhysicalLimits) {

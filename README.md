@@ -1,4 +1,4 @@
-# Retro Taxi Meter Pro v1.4.3
+# Retro Taxi Meter Pro v1.4.4
 
 复古出租车计价器模拟网页，使用 GPS 位移估算里程，并提供长按防误触、跳表音效、一体化热敏小票、手势撕纸结算、收款码正方形裁剪和 PWA 离线运行能力。
 

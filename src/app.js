@@ -494,14 +494,15 @@ function confirmCropImage() {
     ctx.drawImage(img, destX * ratio, destY * ratio, drawW * ratio, drawH * ratio);
 
     const dataUrl = exportCanvas.toDataURL('image/jpeg', 0.92);
+    renderQRImage(dataUrl);
+    closeCropModal();
+
     try {
         localStorage.setItem(STORAGE_QR_KEY, dataUrl);
-        renderQRImage(dataUrl);
-        closeCropModal();
         alert('收款码裁剪完成并已保存！');
     } catch (e) {
         console.warn('保存收款码失败:', e);
-        alert('保存收款码失败：浏览器本地存储空间不足');
+        alert('收款码已在当前页面生效！但由于浏览器存储空间限制，刷新页面后可能需重新导入。');
     }
 }
 
@@ -633,10 +634,21 @@ function abortTripStart(error) {
 function handleStopPointerDown(e) {
     if (!state.isRunning) return;
 
+    const stopBtn = document.getElementById('stop-trip-btn');
+    if (stopBtn && typeof stopBtn.setPointerCapture === 'function' && e && e.pointerId !== undefined) {
+        try {
+            stopBtn.setPointerCapture(e.pointerId);
+        } catch (_) {}
+    }
+
+    if (state.pressAnimId) {
+        cancelAnimationFrame(state.pressAnimId);
+        state.pressAnimId = null;
+    }
+
     state.pressStartTime = Date.now();
     const progressEl = document.getElementById('stop-btn-progress');
-    const stopBtn = document.getElementById('stop-trip-btn');
-    stopBtn.classList.add('pressing');
+    if (stopBtn) stopBtn.classList.add('pressing');
 
     const updateProgress = () => {
         if (!state.pressStartTime) return;
@@ -648,7 +660,7 @@ function handleStopPointerDown(e) {
             // 长按达到 1.5 秒，正式结束行程
             state.pressStartTime = 0;
             progressEl.style.width = '0%';
-            stopBtn.classList.remove('pressing');
+            if (stopBtn) stopBtn.classList.remove('pressing');
             stopTrip();
             return;
         }
@@ -659,7 +671,13 @@ function handleStopPointerDown(e) {
     state.pressAnimId = requestAnimationFrame(updateProgress);
 }
 
-function handleStopPointerUp() {
+function handleStopPointerUp(e) {
+    const stopBtn = document.getElementById('stop-trip-btn');
+    if (stopBtn && typeof stopBtn.releasePointerCapture === 'function' && e && e.pointerId !== undefined) {
+        try {
+            stopBtn.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+    }
     if (state.pressAnimId) {
         cancelAnimationFrame(state.pressAnimId);
         state.pressAnimId = null;
@@ -667,7 +685,6 @@ function handleStopPointerUp() {
     state.pressStartTime = 0;
     const progressEl = document.getElementById('stop-btn-progress');
     if (progressEl) progressEl.style.width = '0%';
-    const stopBtn = document.getElementById('stop-trip-btn');
     if (stopBtn) stopBtn.classList.remove('pressing');
 }
 
@@ -787,7 +804,9 @@ function recalcFare() {
     });
 
     // ⏰【跳表压迫感】车费整数金额每递增 ≥ 1 元（跨过 1 元大关），精准触发一声清脆机械嘟与微震
-    const currentWhole = Math.floor(newFare);
+    // 先按“分”做四舍五入修约，避免 16.999999999 浮点误差导致屏幕显示 17.00 但声音漏响
+    const roundedCents = Math.round((newFare + Number.EPSILON) * 100);
+    const currentWhole = Math.floor(roundedCents / 100);
     if (state.isRunning && currentWhole > state.lastBeepFare) {
         playMeterTickSound();
         triggerHaptic(15);
@@ -1040,6 +1059,9 @@ function submitLoanPayment() {
     triggerHaptic(40);
 
     alert("⚡ 借款申请成功！\n\n已成功从您的【打车借呗·一键渡劫贷】专属账户划扣 ¥999,999.00 并足额付清车资！\n\n💡 贴心提示：请于 5 秒内结清还款以享受首期免息特权！超时将自动转入全家九族工地无偿搬砖信用抵债流程 👷‍♂️🧱！不留遗憾！");
+
+    // 先格式化渲染当次行程的真实日期、耗时、实际里程和运价明细
+    showReceiptScreen();
 
     // 划扣后展示盖有 PAID 印章的小票
     document.getElementById('bankruptcy-screen').style.display = 'none';
