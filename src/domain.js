@@ -1,5 +1,5 @@
 // 应用版本只在一个位置维护，页面标题、离线缓存版本和发布记录需与它保持一致。
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.5.1';
 
 // 默认上海运价是所有外部配置的安全基线；冻结对象可防止运行时被意外改写。
 export const DEFAULT_RATE = Object.freeze({
@@ -220,7 +220,7 @@ export function calculateSuggestedTip(meterFare, tollFee, otherFee, rawPercent) 
  * 使用真实时间戳计算累计秒数，避免浏览器把后台 setInterval 降频后少算时间。
  */
 export function calculateElapsedSeconds(startTimestamp, currentTimestamp = Date.now()) {
-    if (!Number.isFinite(startTimestamp) || !Number.isFinite(currentTimestamp)) {
+    if (!Number.isFinite(startTimestamp) || !Number.isFinite(currentTimestamp) || startTimestamp <= 0) {
         return 0;
     }
 

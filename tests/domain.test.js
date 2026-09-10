@@ -169,6 +169,12 @@ describe('时间规则', () => {
         assert.equal(calculateElapsedSeconds(6500, 1000), 0);
         assert.equal(calculateElapsedSeconds(Number.NaN, 6500), 0);
     });
+
+    it('未初始化或非正起始时间戳返回 0 秒', () => {
+        assert.equal(calculateElapsedSeconds(0, 6500), 0);
+        assert.equal(calculateElapsedSeconds(-100, 6500), 0);
+        assert.equal(calculateElapsedSeconds(null, 6500), 0);
+    });
 });
 
 describe('GPS 样本判定', () => {

@@ -203,7 +203,7 @@ function readStorageItem(key) {
 
 // 行程进行中数据轻量本地容灾持久化（防止车载手滑下拉刷新或后台杀进程导致行程全损）
 function persistActiveTripSilently() {
-    if (!state.isRunning) return;
+    if (!state.isRunning || typeof state.startTime !== 'number' || state.startTime <= 0) return;
     try {
         const payload = {
             startTime: state.startTime,
@@ -230,7 +230,7 @@ function checkAndRestoreActiveTrip() {
         const saved = readStorageItem(STORAGE_ACTIVE_TRIP_KEY);
         if (!saved) return;
         const data = JSON.parse(saved);
-        if (!data || !data.startTime || (Date.now() - (data.lastSavedAt || 0) > 12 * 3600 * 1000)) {
+        if (!data || typeof data.startTime !== 'number' || data.startTime <= 0 || (Date.now() - (data.lastSavedAt || 0) > 12 * 3600 * 1000)) {
             clearActiveTripPersistence();
             return;
         }
@@ -677,7 +677,7 @@ function startTrip(isRestoring = false) {
     triggerHaptic(30);
 
     state.isRunning = true;
-    if (!isRestoring) {
+    if (isRestoring !== true) {
         state.startTime = Date.now();
         state.distance = 0;
         state.dayKm = 0;
@@ -700,6 +700,7 @@ function startTrip(isRestoring = false) {
     document.getElementById('stop-trip-btn').disabled = false;
     document.getElementById('gps-status').textContent = '🛰️ 正在搜星...';
     document.getElementById('gps-status').style.color = '#ffcc00';
+    updateDisplay(); // 立即刷新起步价与数码管，无需等待首秒定时器
 
     state.timerId = setInterval(() => {
         state.elapsedTime = calculateElapsedSeconds(state.startTime);
@@ -1279,3 +1280,18 @@ function resetApp() {
 
 // 执行初始化
 init();
+
+// 挂载调试与自动化测试专用句柄
+if (typeof window !== 'undefined') {
+    window.__TAXI_METER__ = {
+        state,
+        config,
+        startTrip,
+        stopTrip,
+        resetApp,
+        onLocationUpdate,
+        showTipScreen,
+        showReceiptScreen,
+        triggerBankruptcy
+    };
+}
